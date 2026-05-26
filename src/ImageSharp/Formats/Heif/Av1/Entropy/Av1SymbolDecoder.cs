@@ -24,6 +24,8 @@ internal ref struct Av1SymbolDecoder
     private readonly Av1Distribution[] angleDelta = Av1DefaultDistributions.AngleDelta;
     private readonly Av1Distribution filterIntraMode = Av1DefaultDistributions.FilterIntraMode;
     private readonly Av1Distribution[] filterIntra = Av1DefaultDistributions.FilterIntra;
+    private readonly Av1Distribution[][] paletteYMode = Av1DefaultDistributions.PaletteYMode;
+    private readonly Av1Distribution[] paletteUvMode = Av1DefaultDistributions.PaletteUvMode;
     private readonly Av1Distribution[][] transformSize = Av1DefaultDistributions.TransformSize;
     private readonly Av1Distribution[][][] endOfBlockFlag;
     private readonly Av1Distribution[][][] coefficientsBase;
@@ -183,6 +185,18 @@ internal ref struct Av1SymbolDecoder
     {
         ref Av1SymbolReader r = ref this.reader;
         return r.ReadSymbol(this.angleDelta[(int)mode - 1]);
+    }
+
+    public bool ReadHasPaletteY(int bsizeCtx, int paletteModeCtx)
+    {
+        ref Av1SymbolReader r = ref this.reader;
+        return r.ReadSymbol(this.paletteYMode[bsizeCtx][paletteModeCtx]) > 0;
+    }
+
+    public bool ReadHasPaletteUv(int paletteUvModeCtx)
+    {
+        ref Av1SymbolReader r = ref this.reader;
+        return r.ReadSymbol(this.paletteUvMode[paletteUvModeCtx]) > 0;
     }
 
     public Av1FilterIntraMode ReadFilterUltraMode(Av1BlockSize blockSize)

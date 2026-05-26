@@ -1002,7 +1002,7 @@ internal class Av1TileReader : IAv1TileReader
                 partitionInfo.ModeInfo.BlockSize.GetHeight() <= 64 &&
                 this.FrameHeader.AllowScreenContentTools)
             {
-                this.PaletteModeInfo(ref reader, partitionInfo);
+                PaletteModeInfo(ref reader, partitionInfo);
             }
 
             this.FilterIntraModeInfo(ref reader, partitionInfo);
@@ -1050,10 +1050,37 @@ internal class Av1TileReader : IAv1TileReader
     /// <summary>
     /// 5.11.46. Palette mode info syntax.
     /// </summary>
-    private void PaletteModeInfo(ref Av1SymbolDecoder reader, Av1PartitionInfo partitionInfo) =>
+    private static void PaletteModeInfo(ref Av1SymbolDecoder reader, Av1PartitionInfo partitionInfo)
+    {
+        Av1BlockModeInfo modeInfo = partitionInfo.ModeInfo;
+        Av1BlockSize blockSize = modeInfo.BlockSize;
+        int bsizeCtx = blockSize.Get4x4WidthLog2() + blockSize.Get4x4HeightLog2() - 2;
 
-        // TODO: Implement.
-        throw new NotImplementedException();
+        int paletteSizeY = 0;
+        int paletteSizeUv = 0;
+
+        if (modeInfo.YMode == Av1PredictionMode.DC)
+        {
+            int aboveY = partitionInfo.AboveModeInfo?.GetPaletteSize(Av1PlaneType.Y) > 0 ? 1 : 0;
+            int leftY = partitionInfo.LeftModeInfo?.GetPaletteSize(Av1PlaneType.Y) > 0 ? 1 : 0;
+            int paletteModeCtx = aboveY + leftY;
+            if (reader.ReadHasPaletteY(bsizeCtx, paletteModeCtx))
+            {
+                throw new NotImplementedException("Palette colour decoding not implemented.");
+            }
+        }
+
+        if (partitionInfo.IsChroma && modeInfo.UvMode == Av1PredictionMode.DC)
+        {
+            int paletteUvModeCtx = paletteSizeY > 0 ? 1 : 0;
+            if (reader.ReadHasPaletteUv(paletteUvModeCtx))
+            {
+                throw new NotImplementedException("Palette colour decoding not implemented.");
+            }
+        }
+
+        modeInfo.SetPaletteSizes(paletteSizeY, paletteSizeUv);
+    }
 
     /// <summary>
     /// 5.11.45. Read CFL alphas syntax.

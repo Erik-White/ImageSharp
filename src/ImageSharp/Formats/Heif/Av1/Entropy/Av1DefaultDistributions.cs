@@ -191,6 +191,28 @@ internal static class Av1DefaultDistributions
             new(20229), new(18101), new(16384), new(16384)
         ];
 
+    /// <summary>
+    /// Gets the palette Y-mode <see cref="Av1Distribution"/>, indexed by [bsize_ctx][palette_mode_ctx].
+    /// </summary>
+    /// <remarks>SVT/libaom: default_palette_y_mode_cdf.</remarks>
+    public static Av1Distribution[][] PaletteYMode =>
+        [
+            [new(31676), new(3419), new(1261)],
+            [new(31912), new(2859), new(980)],
+            [new(31823), new(3400), new(838)],
+            [new(32030), new(3574), new(820)],
+            [new(32309), new(3692), new(1115)],
+            [new(32232), new(3164), new(922)],
+            [new(32384), new(3266), new(448)]
+        ];
+
+    /// <summary>
+    /// Gets the palette UV-mode <see cref="Av1Distribution"/>, indexed by palette_uv_mode_ctx.
+    /// </summary>
+    /// <remarks>SVT/libaom: default_palette_uv_mode_cdf.</remarks>
+    public static Av1Distribution[] PaletteUvMode =>
+        [new(32461), new(21488)];
+
     public static Av1Distribution[][] TransformSize =>
         [
             [new(19968), new(19968), new(24320)],
