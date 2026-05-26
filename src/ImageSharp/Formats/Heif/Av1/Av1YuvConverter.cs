@@ -1,20 +1,19 @@
 // Copyright (c) Six Labors.
 // Licensed under the Six Labors Split License.
 
-using System.Runtime.CompilerServices;
-using SixLabors.ImageSharp.Memory;
+using SixLabors.ImageSharp.Formats.Heif.Av1.OpenBitstreamUnit;
 using SixLabors.ImageSharp.PixelFormats;
 
 namespace SixLabors.ImageSharp.Formats.Heif.Av1;
 
 internal class Av1YuvConverter
 {
-    // BT.709 SPecificatiuon constants.
-    private const int UMax = (int)(0.436 * 255);
-    private const int VMax = (int)(0.615 * 255);
-    private const int Wr = (int)(0.2126 * 255);
-    private const int Wb = (int)(0.0722 * 255);
-    private const int Wg = 255 - Wr - Wb;
+    private static readonly YuvMatrix Bt709 = new(0.2126, 0.0722);
+
+    // Used by Bt601/Bt470BG/Fcc/Smpte240/Unspecified.
+    private static readonly YuvMatrix Bt601 = new(0.299, 0.114);
+
+    private static readonly YuvMatrix Bt2020 = new(0.2627, 0.0593);
 
     public static void ConvertToRgb<TPixel>(Configuration configuration, Av1FrameBuffer<byte> frameBuffer, ImageFrame<TPixel> image)
         where TPixel : unmanaged, IPixel<TPixel>
@@ -22,13 +21,7 @@ internal class Av1YuvConverter
         using Image<Rgb24> rgbImage = new(image.Width, image.Height);
         ImageFrame<Rgb24> rgbFrame = rgbImage.Frames.RootFrame;
 
-        // TODO: Support YUV420 and YUV420 also.
-        if (frameBuffer.ColorFormat != Av1ColorFormat.Yuv444)
-        {
-            throw new NotSupportedException("Only able to convert YUV444 to RGB.");
-        }
-
-        ConvertYuvToRgb(frameBuffer, rgbFrame, false);
+        ConvertYuvToRgb(frameBuffer, rgbFrame);
         image.ProcessPixelRows(rgbFrame, (resultAcc, rgbAcc) =>
         {
             for (int y = 0; y < rgbImage.Height; y++)
@@ -56,114 +49,246 @@ internal class Av1YuvConverter
             }
         });
 
-        // TODO: Support YUV422 and YUV420 also.
-        ConvertRgbToYuv444(rgbFrame, frameBuffer);
+        ConvertRgbToYuv(rgbFrame, frameBuffer);
     }
 
-    private static void ConvertYuvToRgb(Av1FrameBuffer<byte> buffer, ImageFrame<Rgb24> image, bool isSubsampled)
+    private static (int SubX, int SubY) GetSubsampling(Av1ColorFormat format) => format switch
     {
-        // Weight multiplied by 256 to exploit full byte resolution, rounded to the nearest integer.
-        // Using BT.709 specification
-        Guard.NotNull(buffer.BufferY);
-        Guard.NotNull(buffer.BufferCb);
-        Guard.NotNull(buffer.BufferCr);
-        Guard.MustBeGreaterThanOrEqualTo(buffer.BufferY.Width, image.Width, nameof(buffer));
-        Guard.MustBeGreaterThanOrEqualTo(buffer.BufferY.Height, image.Height, nameof(buffer));
-        if (isSubsampled)
-        {
-            Guard.MustBeGreaterThanOrEqualTo(buffer.BufferCb.Width, image.Width >> 1, nameof(buffer));
-            Guard.MustBeGreaterThanOrEqualTo(buffer.BufferCb.Height, image.Height >> 1, nameof(buffer));
-            Guard.MustBeGreaterThanOrEqualTo(buffer.BufferCr.Width, image.Width >> 1, nameof(buffer));
-            Guard.MustBeGreaterThanOrEqualTo(buffer.BufferCr.Height, image.Height >> 1, nameof(buffer));
-        }
-        else
-        {
-            Guard.MustBeGreaterThanOrEqualTo(buffer.BufferCb.Width, image.Width, nameof(buffer));
-            Guard.MustBeGreaterThanOrEqualTo(buffer.BufferCb.Height, image.Height, nameof(buffer));
-            Guard.MustBeGreaterThanOrEqualTo(buffer.BufferCr.Width, image.Width, nameof(buffer));
-            Guard.MustBeGreaterThanOrEqualTo(buffer.BufferCr.Height, image.Height, nameof(buffer));
-        }
+        Av1ColorFormat.Yuv420 => (1, 1),
+        Av1ColorFormat.Yuv422 => (1, 0),
+        Av1ColorFormat.Yuv444 => (0, 0),
+        Av1ColorFormat.Yuv400 => (0, 0),
+        _ => throw new NotSupportedException($"Unsupported color format: {format}.")
+    };
 
-        image.ProcessPixelRows(accessor =>
-            {
-                Span<byte> yBuffer = buffer.DeriveBlockPointer(Av1Plane.Y, default, 0, 0, out int yStride);
-                Span<byte> uBuffer = buffer.DeriveBlockPointer(Av1Plane.U, default, 0, 0, out int uStride);
-                Span<byte> vBuffer = buffer.DeriveBlockPointer(Av1Plane.V, default, 0, 0, out int vStride);
-                int yOffset = yStride;
-                int uOffset = uStride;
-                int vOffset = vStride;
-                for (int y = 0; y < image.Height; y++)
-                {
-                    Span<Rgb24> rgbRow = accessor.GetRowSpan(y);
-                    ref Rgb24 pixel = ref rgbRow[0];
-                    ref byte yRef = ref yBuffer[yOffset];
-                    ref byte uRef = ref uBuffer[uOffset];
-                    ref byte vRef = ref vBuffer[vOffset];
-                    for (int x = 0; x < image.Width; x++)
-                    {
-                        int u = uRef; // ((uRef - 127) * 2 * UMax) / 255;
-                        int v = vRef; // ((vRef - 127) * 2 * VMax) / 255;
-                        pixel.R = (byte)Av1Math.Clip3(0, 255, yRef + (v * (255 - Wr) / VMax));
-                        pixel.G = (byte)Av1Math.Clip3(0, 255, yRef - ((u * Wb * (255 - Wb)) / (UMax * Wg)) - ((v * Wr * (255 - Wr)) / (VMax * Wg)));
-                        pixel.B = (byte)Av1Math.Clip3(0, 255, yRef + ((u * (255 - Wb)) / UMax));
-                        pixel = ref Unsafe.Add(ref pixel, 1);
-                        yRef = ref Unsafe.Add(ref yRef, 1);
-                        uRef = ref Unsafe.Add(ref uRef, 1);
-                        vRef = ref Unsafe.Add(ref vRef, 1);
-                    }
-
-                    yOffset += yStride;
-                    uOffset += uStride;
-                    vOffset += vStride;
-                }
-            });
-    }
-
-    private static void ConvertRgbToYuv444(ImageFrame<Rgb24> image, Av1FrameBuffer<byte> buffer)
+    // AVIF/MIAF (ISO 23000-22 §7.4.2.2.2) treats matrix_coefficients = Unspecified as BT.601.
+    // Identity (matrix_coefficients = 0) means GBR with no transform, but historically this
+    // converter has produced BT.709 output for default-constructed sequence headers; preserve
+    // that to avoid breaking callers that rely on the legacy contract.
+    private static YuvMatrix GetMatrix(ObuMatrixCoefficients matrix) => matrix switch
     {
-        // Weight multiplied by 256 to exploit full byte resolution, rounded to the nearest integer.
+        ObuMatrixCoefficients.Bt407 => Bt709,
+        ObuMatrixCoefficients.Bt2020NonConstantLuminance => Bt2020,
+        ObuMatrixCoefficients.Bt2020ConstantLuminance => Bt2020,
+        ObuMatrixCoefficients.Smpte240 => new YuvMatrix(0.212, 0.087),
+        ObuMatrixCoefficients.Bt601 => Bt601,
+        ObuMatrixCoefficients.Bt470BG => Bt601,
+        ObuMatrixCoefficients.Fcc => new YuvMatrix(0.30, 0.11),
+        ObuMatrixCoefficients.Identity => Bt709,
+        ObuMatrixCoefficients.Unspecified => Bt601,
+        _ => Bt601,
+    };
+
+    private static void ConvertYuvToRgb(Av1FrameBuffer<byte> buffer, ImageFrame<Rgb24> image)
+    {
         Guard.NotNull(buffer.BufferY);
-        Guard.NotNull(buffer.BufferCb);
-        Guard.NotNull(buffer.BufferCr);
-        Guard.MustBeGreaterThanOrEqualTo(buffer.BufferY.Width, image.Width, nameof(buffer));
-        Guard.MustBeGreaterThanOrEqualTo(buffer.BufferY.Height, image.Height, nameof(buffer));
-        Guard.MustBeGreaterThanOrEqualTo(buffer.BufferCb.Width, image.Width, nameof(buffer));
-        Guard.MustBeGreaterThanOrEqualTo(buffer.BufferCb.Height, image.Height, nameof(buffer));
-        Guard.MustBeGreaterThanOrEqualTo(buffer.BufferCr.Width, image.Width, nameof(buffer));
-        Guard.MustBeGreaterThanOrEqualTo(buffer.BufferCr.Height, image.Height, nameof(buffer));
-
-        image.ProcessPixelRows(accessor =>
+        (int subX, int subY) = GetSubsampling(buffer.ColorFormat);
+        bool monochrome = buffer.ColorFormat == Av1ColorFormat.Yuv400;
+        if (!monochrome)
         {
-            Buffer2D<byte> yBuffer = buffer.BufferY;
-            Buffer2D<byte> uBuffer = buffer.BufferCb;
-            Buffer2D<byte> vBuffer = buffer.BufferCr;
-            for (int y = 0; y < image.Height; y++)
+            Guard.NotNull(buffer.BufferCb);
+            Guard.NotNull(buffer.BufferCr);
+        }
+
+        YuvMatrix matrix = GetMatrix(buffer.MatrixCoefficients);
+        double wr = matrix.Wr;
+        double wb = matrix.Wb;
+        double wg = matrix.Wg;
+        double krFactor = 2.0 * (1.0 - wr);
+        double kbFactor = 2.0 * (1.0 - wb);
+        double krgFactor = krFactor * wr / wg;
+        double kbgFactor = kbFactor * wb / wg;
+        (double yScale, double yBias, double chromaScale, double chromaBias) = GetDecodeScale(buffer.IsFullRange);
+
+        Span<byte> yBuffer = buffer.DeriveBlockPointer(Av1Plane.Y, default, 0, 0, out int yStride);
+        Span<byte> uBuffer = default;
+        Span<byte> vBuffer = default;
+        int chromaStride = 0;
+        if (!monochrome)
+        {
+            uBuffer = buffer.DeriveBlockPointer(Av1Plane.U, default, subX, subY, out _);
+            vBuffer = buffer.DeriveBlockPointer(Av1Plane.V, default, subX, subY, out chromaStride);
+        }
+
+        int yOffset = yStride;
+        int chromaOffset = chromaStride;
+
+        for (int y = 0; y < image.Height; y++)
+        {
+            Span<Rgb24> rgbRow = image.PixelBuffer.DangerousGetRowSpan(y);
+            for (int x = 0; x < image.Width; x++)
             {
-                Span<Rgb24> rgbRow = accessor.GetRowSpan(y);
-                ref Rgb24 pixel = ref rgbRow[0];
-                Span<byte> ySpan = yBuffer.DangerousGetRowSpan(y);
-                ref byte yRef = ref ySpan[0];
-                Span<byte> uSpan = uBuffer.DangerousGetRowSpan(y);
-                ref byte uRef = ref uSpan[0];
-                Span<byte> vSpan = vBuffer.DangerousGetRowSpan(y);
-                ref byte vRef = ref vSpan[0];
-                for (int x = 0; x < image.Width; x++)
+                double yNorm = (yBuffer[yOffset + x] * yScale) + yBias;
+                double cb, cr;
+                if (monochrome)
                 {
-                    yRef = (byte)Av1Math.Clip3(0, 255, ((Wr * pixel.R) + (Wg * pixel.G) + (Wb * pixel.B)) / 255);
-
-                    // Not normalized, where range is [-UMax, UMax] or [-VMax, VMax]
-                    // uRef = (byte)((UMax * (pixel.B - y)) / (255 - Wb));
-                    // vRef = (byte)((VMax * (pixel.R - y)) / (255 - Wr));
-
-                    // Normalized calculations
-                    uRef = (byte)Av1Math.Clip3(0, 255, ((UMax * (pixel.B - yRef) / (255 - Wb)) + UMax) * 255 / (2 * UMax));
-                    vRef = (byte)Av1Math.Clip3(0, 255, ((VMax * (pixel.R - yRef) / (255 - Wr)) + VMax) * 255 / (2 * VMax));
-                    pixel = ref Unsafe.Add(ref pixel, 1);
-                    yRef = ref Unsafe.Add(ref yRef, 1);
-                    uRef = ref Unsafe.Add(ref uRef, 1);
-                    vRef = ref Unsafe.Add(ref vRef, 1);
+                    cb = 0;
+                    cr = 0;
                 }
+                else
+                {
+                    int chromaX = x >> subX;
+                    cb = (uBuffer[chromaOffset + chromaX] * chromaScale) + chromaBias;
+                    cr = (vBuffer[chromaOffset + chromaX] * chromaScale) + chromaBias;
+                }
+
+                double r = yNorm + (krFactor * cr);
+                double g = yNorm - (krgFactor * cr) - (kbgFactor * cb);
+                double b = yNorm + (kbFactor * cb);
+
+                rgbRow[x] = new Rgb24(
+                    ClampToByte(r * 255.0),
+                    ClampToByte(g * 255.0),
+                    ClampToByte(b * 255.0));
             }
-        });
+
+            yOffset += yStride;
+            if (!monochrome && (subY == 0 || ((y + 1) & 1) == 0))
+            {
+                chromaOffset += chromaStride;
+            }
+        }
+    }
+
+    private static void ConvertRgbToYuv(ImageFrame<Rgb24> image, Av1FrameBuffer<byte> buffer)
+    {
+        Guard.NotNull(buffer.BufferY);
+        (int subX, int subY) = GetSubsampling(buffer.ColorFormat);
+        bool monochrome = buffer.ColorFormat == Av1ColorFormat.Yuv400;
+        if (!monochrome)
+        {
+            Guard.NotNull(buffer.BufferCb);
+            Guard.NotNull(buffer.BufferCr);
+        }
+
+        YuvMatrix matrix = GetMatrix(buffer.MatrixCoefficients);
+        double wr = matrix.Wr;
+        double wb = matrix.Wb;
+        double wg = matrix.Wg;
+        double cbNormScale = 0.5 / (1.0 - wb);
+        double crNormScale = 0.5 / (1.0 - wr);
+        (double yLumaScale, double yLumaBias, double chromaScale, double chromaBias) = GetEncodeScale(buffer.IsFullRange);
+        byte chromaNeutral = ClampToByte(chromaBias);
+
+        Span<byte> yBuffer = buffer.DeriveBlockPointer(Av1Plane.Y, default, 0, 0, out int yStride);
+        Span<byte> uBuffer = default;
+        Span<byte> vBuffer = default;
+        int chromaStride = 0;
+        int chromaWidth = 0;
+        if (!monochrome)
+        {
+            uBuffer = buffer.DeriveBlockPointer(Av1Plane.U, default, subX, subY, out _);
+            vBuffer = buffer.DeriveBlockPointer(Av1Plane.V, default, subX, subY, out chromaStride);
+            chromaWidth = (image.Width + subX) >> subX;
+        }
+
+        int yOffset = yStride;
+        int chromaOffset = chromaStride;
+
+        // Accumulators for chroma subsampling (4:2:0 averages 2x2 blocks of signed cb/cr in [-0.5, 0.5]).
+        double[] uAcc = monochrome ? [] : new double[chromaWidth];
+        double[] vAcc = monochrome ? [] : new double[chromaWidth];
+        int[] chromaCount = monochrome ? [] : new int[chromaWidth];
+
+        for (int y = 0; y < image.Height; y++)
+        {
+            Span<Rgb24> rgbRow = image.PixelBuffer.DangerousGetRowSpan(y);
+            for (int x = 0; x < image.Width; x++)
+            {
+                Rgb24 pixel = rgbRow[x];
+                double r = pixel.R / 255.0;
+                double g = pixel.G / 255.0;
+                double b = pixel.B / 255.0;
+
+                double yLuma = (wr * r) + (wg * g) + (wb * b);
+                yBuffer[yOffset + x] = ClampToByte((yLuma * yLumaScale) + yLumaBias);
+
+                if (monochrome)
+                {
+                    continue;
+                }
+
+                double cb = (b - yLuma) * cbNormScale;
+                double cr = (r - yLuma) * crNormScale;
+
+                int chromaX = x >> subX;
+                uAcc[chromaX] += cb;
+                vAcc[chromaX] += cr;
+                chromaCount[chromaX]++;
+            }
+
+            yOffset += yStride;
+
+            if (!monochrome && (subY == 0 || ((y + 1) & 1) == 0))
+            {
+                FlushChromaRow(uBuffer, vBuffer, chromaOffset, chromaWidth, uAcc, vAcc, chromaCount, chromaScale, chromaBias, chromaNeutral);
+                chromaOffset += chromaStride;
+            }
+        }
+
+        if (!monochrome && subY == 1 && (image.Height & 1) == 1)
+        {
+            // Final partial chroma row at odd image height.
+            FlushChromaRow(uBuffer, vBuffer, chromaOffset, chromaWidth, uAcc, vAcc, chromaCount, chromaScale, chromaBias, chromaNeutral);
+        }
+    }
+
+    private static void FlushChromaRow(Span<byte> uBuffer, Span<byte> vBuffer, int chromaOffset, int chromaWidth, double[] uAcc, double[] vAcc, int[] chromaCount, double chromaScale, double chromaBias, byte chromaNeutral)
+    {
+        for (int cx = 0; cx < chromaWidth; cx++)
+        {
+            int count = chromaCount[cx];
+            if (count > 0)
+            {
+                uBuffer[chromaOffset + cx] = ClampToByte((uAcc[cx] / count * chromaScale) + chromaBias);
+                vBuffer[chromaOffset + cx] = ClampToByte((vAcc[cx] / count * chromaScale) + chromaBias);
+            }
+            else
+            {
+                uBuffer[chromaOffset + cx] = chromaNeutral;
+                vBuffer[chromaOffset + cx] = chromaNeutral;
+            }
+
+            uAcc[cx] = 0;
+            vAcc[cx] = 0;
+            chromaCount[cx] = 0;
+        }
+    }
+
+    // Per ITU-T H.273 §8.3 (referenced by AV1): full-range chroma uses Round(c × 256) + 128 with
+    // c in [-0.5, 0.5), so the inverse is (C - 128) / 256. Studio swing uses Y in [16,235] (×219)
+    // and C in [16,240] (×224) anchored at 128. Luma full-range stays at [0,255] (×255).
+    private static (double YScale, double YBias, double ChromaScale, double ChromaBias) GetDecodeScale(bool isFullRange)
+        => isFullRange
+            ? (1.0 / 255.0, 0.0, 1.0 / 256.0, -0.5)
+            : (1.0 / 219.0, -16.0 / 219.0, 1.0 / 224.0, -128.0 / 224.0);
+
+    private static (double YScale, double YBias, double ChromaScale, double ChromaBias) GetEncodeScale(bool isFullRange)
+        => isFullRange
+            ? (255.0, 0.0, 256.0, 128.0)
+            : (219.0, 16.0, 224.0, 128.0);
+
+    private static byte ClampToByte(double value)
+    {
+        double rounded = Math.Round(value);
+        if (rounded < 0)
+        {
+            return 0;
+        }
+
+        if (rounded > 255)
+        {
+            return 255;
+        }
+
+        return (byte)rounded;
+    }
+
+    /// <summary>
+    /// Luma weights for an RGB-to-Y'CbCr matrix (Wr, Wg, Wb), per ITU-T H.273.
+    /// </summary>
+    private readonly record struct YuvMatrix(double Wr, double Wb)
+    {
+        public double Wg => 1.0 - this.Wr - this.Wb;
     }
 }

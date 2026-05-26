@@ -27,6 +27,8 @@ internal class Av1FrameBuffer<T> : IDisposable
         this.BitDepth = sequenceHeader.ColorConfig.BitDepth;
         int bitsPerPixel = this.BitDepth > Av1BitDepth.EightBit || is16BitPipeline ? 2 : 1;
         this.ColorFormat = colorFormat;
+        this.MatrixCoefficients = sequenceHeader.ColorConfig.MatrixCoefficients;
+        this.IsFullRange = sequenceHeader.ColorConfig.ColorRange;
         this.BufferEnableMask = sequenceHeader.ColorConfig.IsMonochrome ? PictureBufferLumaMask : PictureBufferFullMask;
 
         int leftPadding = DecoderPaddingValue;
@@ -151,6 +153,18 @@ internal class Av1FrameBuffer<T> : IDisposable
     /// Gets or sets the chroma subsampling.
     /// </summary>
     public Av1ColorFormat ColorFormat { get; set; }
+
+    /// <summary>
+    /// Gets or sets the matrix coefficients identifying the YUV-to-RGB conversion to apply
+    /// (AV1 OBU color_config matrix_coefficients, ITU-T H.273).
+    /// </summary>
+    public ObuMatrixCoefficients MatrixCoefficients { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the YUV samples use the full [0..255] range
+    /// (true) or the studio-swing limited range (false).
+    /// </summary>
+    public bool IsFullRange { get; set; }
 
     /// <summary>
     /// Gets or sets the Luma picture height.
