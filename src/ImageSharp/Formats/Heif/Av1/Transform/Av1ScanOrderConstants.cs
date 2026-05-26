@@ -8,6 +8,10 @@ internal static class Av1ScanOrderConstants
     public const int QuantizationMatrixLevelBitCount = 4;
     public const int QuantizationMatrixLevelCount = 1 << QuantizationMatrixLevelBitCount;
 
+    // libaom AOM_QM_BITS: shift used when applying QM weights during (de)quantization.
+    // The unity QM weight is 32 = 1 << QuantizationMatrixWeightBits.
+    public const int QuantizationMatrixWeightBits = 5;
+
     private static readonly short[] DefaultScan4x4 = [0, 1, 4, 8, 5, 2, 3, 6, 9, 12, 13, 10, 7, 11, 14, 15];
     private static readonly short[] DefaultScan8x8 = [
         0,  1,  8,  16, 9,  2,  3,  10, 17, 24, 32, 25, 18, 11, 4,  5,  12, 19, 26, 33, 40, 48,

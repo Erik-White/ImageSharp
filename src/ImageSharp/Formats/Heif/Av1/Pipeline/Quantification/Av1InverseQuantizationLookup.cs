@@ -8,6 +8,33 @@ namespace SixLabors.ImageSharp.Formats.Heif.Av1.Pipeline.Quantification;
 
 internal class Av1InverseQuantizationLookup
 {
+    // Maps adjusted Av1TransformSize values to packed slots in InverseWeightTable's per-plane array.
+    // The enum has gaps (4=64x64, 11/12=32x64/64x32, 17/18=16x64/64x16) that are folded away by
+    // GetAdjusted, leaving 14 distinct adjusted sizes. The lookup table is packed (length 14),
+    // so callers that pass the raw enum value would index past the end.
+    private static readonly int[] AdjustedTransformSizeToTableSlot =
+    [
+        0,  // Size4x4
+        1,  // Size8x8
+        2,  // Size16x16
+        3,  // Size32x32
+        -1, // Size64x64 (must be adjusted to Size32x32)
+        4,  // Size4x8
+        5,  // Size8x4
+        6,  // Size8x16
+        7,  // Size16x8
+        8,  // Size16x32
+        9,  // Size32x16
+        -1, // Size32x64 (must be adjusted to Size32x32)
+        -1, // Size64x32 (must be adjusted to Size32x32)
+        10, // Size4x16
+        11, // Size16x4
+        12, // Size8x32
+        13, // Size32x8
+        -1, // Size16x64 (must be adjusted to Size16x32)
+        -1, // Size64x16 (must be adjusted to Size32x16)
+    ];
+
     /// <summary>
     /// Gets 16 sets of quantization matrices for chroma and luma and each TX size.
     /// Matrices for different TX sizes are in fact sub-sampled from the 32x32 and 16x16 sizes,
@@ -6797,7 +6824,10 @@ internal class Av1InverseQuantizationLookup
     ];
 
     public static ReadOnlySpan<int> GetQuantizationMatrix(int level, Av1Plane plane, Av1TransformSize transformSize)
-
-        // Transform size must be adjusted.
-        => InverseWeightTable[level][Math.Min(1, (int)plane)][(int)transformSize];
+    {
+        int planeIndex = Math.Min(1, (int)plane);
+        int slot = AdjustedTransformSizeToTableSlot[(int)transformSize];
+        DebugGuard.MustBeGreaterThanOrEqualTo(slot, 0, nameof(transformSize));
+        return InverseWeightTable[level][planeIndex][slot];
+    }
 }

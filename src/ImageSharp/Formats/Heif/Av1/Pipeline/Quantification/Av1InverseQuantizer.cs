@@ -108,10 +108,10 @@ internal class Av1InverseQuantizer
     /// </summary>
     private static int GetDeQuantizedValue(short dequant, int coefficientIndex, ReadOnlySpan<int> iqMatrix)
     {
-        const int bias = 1 << (Av1ScanOrderConstants.QuantizationMatrixLevelBitCount - 1);
+        const int bias = 1 << (Av1ScanOrderConstants.QuantizationMatrixWeightBits - 1);
         int deQuantifiedValue = dequant;
 
-        deQuantifiedValue = ((iqMatrix[coefficientIndex] * deQuantifiedValue) + bias) >> Av1ScanOrderConstants.QuantizationMatrixLevelBitCount;
+        deQuantifiedValue = ((iqMatrix[coefficientIndex] * deQuantifiedValue) + bias) >> Av1ScanOrderConstants.QuantizationMatrixWeightBits;
         return deQuantifiedValue;
     }
 }

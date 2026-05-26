@@ -41,8 +41,6 @@ internal ref struct Av1SymbolReader
     public int ReadSymbol(Av1Distribution distribution)
     {
         int value = this.DecodeIntegerQ15(distribution);
-
-        // UpdateCdf(probabilities, value, numberOfSymbols);
         distribution.Update(value);
         return value;
     }

@@ -42,7 +42,7 @@ internal class Av1DeQuantizationContext
         => this.acContent[segmentId][(int)plane];
 
     public void SetAc(int segmentId, Av1Plane plane, short value)
-        => this.dcContent[segmentId][(int)plane] = value;
+        => this.acContent[segmentId][(int)plane] = value;
 
     public void SetDc(int segmentId, Av1Plane plane, short value)
         => this.dcContent[segmentId][(int)plane] = value;

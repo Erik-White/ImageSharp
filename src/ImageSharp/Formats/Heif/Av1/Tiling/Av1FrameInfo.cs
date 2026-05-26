@@ -60,14 +60,18 @@ internal partial class Av1FrameInfo
             {
                 Point point = new(x, y);
                 this.superblockInfos[i] = new(this, point);
-                for (int j = 0; j < this.modeInfoCountPerSuperblock; j++)
-                {
-                    this.transformInfosY[j] = new Av1TransformInfo();
-                    this.transformInfosUv[j] = new Av1TransformInfo();
-                }
-
                 i++;
             }
+        }
+
+        for (int j = 0; j < this.transformInfosY.Length; j++)
+        {
+            this.transformInfosY[j] = new Av1TransformInfo();
+        }
+
+        for (int j = 0; j < this.transformInfosUv.Length; j++)
+        {
+            this.transformInfosUv[j] = new Av1TransformInfo();
         }
 
         bool subX = sequenceHeader.ColorConfig.SubSamplingX;
@@ -77,8 +81,8 @@ internal partial class Av1FrameInfo
         this.subsamplingFactor = (subX && subY) ? 2 : (subX && !subY) ? 1 : (!subX && !subY) ? 0 : -1;
         Guard.IsFalse(this.subsamplingFactor == -1, nameof(this.subsamplingFactor), "Invalid combination of subsampling.");
         this.coefficientsY = new int[superblockCount * this.modeInfoCountPerSuperblock * CoefficientCountPerModeInfo];
-        this.coefficientsU = new int[(this.modeInfoCountPerSuperblock * CoefficientCountPerModeInfo) >> this.subsamplingFactor];
-        this.coefficientsV = new int[(this.modeInfoCountPerSuperblock * CoefficientCountPerModeInfo) >> this.subsamplingFactor];
+        this.coefficientsU = new int[(superblockCount * this.modeInfoCountPerSuperblock * CoefficientCountPerModeInfo) >> this.subsamplingFactor];
+        this.coefficientsV = new int[(superblockCount * this.modeInfoCountPerSuperblock * CoefficientCountPerModeInfo) >> this.subsamplingFactor];
         this.deltaQ = new int[superblockCount];
 
         // Superblock size: 128x128 has sizelog2 = 7, 64x64 = 6. Factor should be 128x128 => 4 and 64x64 => 1.
@@ -97,6 +101,8 @@ internal partial class Av1FrameInfo
     /// Gets the Width or height of a single superblock, counted in mode info blocks.
     /// </summary>
     public int SuperblockModeInfoSize => this.modeInfoSizePerSuperblock;
+
+    public int NextModeInfoIndex => this.modeInfoMap.NextIndex;
 
     public Av1SuperblockInfo GetSuperblock(Point index)
     {
@@ -118,6 +124,8 @@ internal partial class Av1FrameInfo
         int index = this.modeInfoMap[location];
         return this.modeInfos[index];
     }
+
+    public Av1BlockModeInfo GetModeInfoByIndex(int index) => this.modeInfos[index];
 
     public Span<Av1TransformInfo> GetSuperblockTransform(int plane, Point index)
     {
@@ -147,30 +155,33 @@ internal partial class Av1FrameInfo
         plane switch
         {
             0 => (Span<int>)this.coefficientsY,
-            1 => (Span<int>)this.coefficientsY,
-            2 => (Span<int>)this.coefficientsY,
+            1 => (Span<int>)this.coefficientsU,
+            2 => (Span<int>)this.coefficientsV,
             _ => null,
         };
 
     public Span<int> GetCoefficientsY(Point index)
     {
         Span<int> span = this.coefficientsY;
-        int i = ((index.Y * this.modeInfoCountPerSuperblock) + index.X) * CoefficientCountPerModeInfo;
-        return span.Slice(i, CoefficientCountPerModeInfo);
+        int chunkSize = this.modeInfoCountPerSuperblock * CoefficientCountPerModeInfo;
+        int superblock = (index.Y * this.superblockColumnCount) + index.X;
+        return span.Slice(superblock * chunkSize, chunkSize);
     }
 
     public Span<int> GetCoefficientsU(Point index)
     {
         Span<int> span = this.coefficientsU;
-        int i = ((index.Y * this.modeInfoCountPerSuperblock) + index.X) * CoefficientCountPerModeInfo;
-        return span.Slice(i >> this.subsamplingFactor, CoefficientCountPerModeInfo);
+        int chunkSize = (this.modeInfoCountPerSuperblock * CoefficientCountPerModeInfo) >> this.subsamplingFactor;
+        int superblock = (index.Y * this.superblockColumnCount) + index.X;
+        return span.Slice(superblock * chunkSize, chunkSize);
     }
 
     public Span<int> GetCoefficientsV(Point index)
     {
         Span<int> span = this.coefficientsV;
-        int i = ((index.Y * this.modeInfoCountPerSuperblock) + index.X) * CoefficientCountPerModeInfo;
-        return span.Slice(i >> this.subsamplingFactor, CoefficientCountPerModeInfo);
+        int chunkSize = (this.modeInfoCountPerSuperblock * CoefficientCountPerModeInfo) >> this.subsamplingFactor;
+        int superblock = (index.Y * this.superblockColumnCount) + index.X;
+        return span.Slice(superblock * chunkSize, chunkSize);
     }
 
     public ref int GetDeltaQuantizationIndex(Point index)

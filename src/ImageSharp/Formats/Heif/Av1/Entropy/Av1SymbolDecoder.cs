@@ -404,7 +404,7 @@ internal ref struct Av1SymbolDecoder
     {
         int i = endOfBlock - 1;
         Point position = levels.GetPosition(scan[i]);
-        int coefficientContext = Av1SymbolContextHelper.GetLowerLevelContextEndOfBlock(levels, position);
+        int coefficientContext = Av1SymbolContextHelper.GetLowerLevelContextEndOfBlock(levels, i);
         int level = this.ReadBaseEndOfBlock(transformSizeContext, planeType, coefficientContext) + 1;
         Av1TransformSize limitedTransformSizeContext = (Av1TransformSize)Math.Min((int)transformSizeContext, (int)Av1TransformSize.Size32x32);
         if (level > Av1Constants.BaseLevelsCount)
@@ -463,7 +463,7 @@ internal ref struct Av1SymbolDecoder
         for (int c = 0; c < endOfBlock; c++)
         {
             int sign = 0;
-            Point position = levels.GetPosition(c);
+            Point position = levels.GetPosition(scan[c]);
             int level = levels[position];
             if (level != 0)
             {
@@ -600,24 +600,24 @@ internal ref struct Av1SymbolDecoder
 
         if (modeBlockToRightEdge < 0)
         {
-            int aboveContextCount = Math.Min(transformSizeWide, blocksWide - aboveOffset);
-            Array.Fill(aboveContexts, culLevel, 0, aboveContextCount);
-            Array.Fill(aboveContexts, 0, aboveContextCount, transformSizeWide - aboveContextCount);
+            int aboveContextCount = Math.Min(transformSizeWide, blocksWide - blockPosition.X);
+            Array.Fill(aboveContexts, culLevel, aboveOffset, aboveContextCount);
+            Array.Fill(aboveContexts, 0, aboveOffset + aboveContextCount, transformSizeWide - aboveContextCount);
         }
         else
         {
-            Array.Fill(aboveContexts, culLevel, 0, transformSizeWide);
+            Array.Fill(aboveContexts, culLevel, aboveOffset, transformSizeWide);
         }
 
         if (modeBlockToBottomEdge < 0)
         {
-            int leftContextCount = Math.Min(transformSizeHigh, blocksHigh - leftOffset);
-            Array.Fill(leftContexts, culLevel, 0, leftContextCount);
-            Array.Fill(leftContexts, 0, leftContextCount, transformSizeWide - leftContextCount);
+            int leftContextCount = Math.Min(transformSizeHigh, blocksHigh - blockPosition.Y);
+            Array.Fill(leftContexts, culLevel, leftOffset, leftContextCount);
+            Array.Fill(leftContexts, 0, leftOffset + leftContextCount, transformSizeHigh - leftContextCount);
         }
         else
         {
-            Array.Fill(leftContexts, culLevel, 0, transformSizeHigh);
+            Array.Fill(leftContexts, culLevel, leftOffset, transformSizeHigh);
         }
     }
 

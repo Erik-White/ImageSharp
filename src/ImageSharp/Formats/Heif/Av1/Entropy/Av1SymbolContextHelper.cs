@@ -81,21 +81,20 @@ internal static class Av1SymbolContextHelper
     /// <summary>
     /// SVT: get_lower_levels_ctx_eob
     /// </summary>
-    internal static int GetLowerLevelContextEndOfBlock(Av1LevelBuffer levels, Point position)
+    internal static int GetLowerLevelContextEndOfBlock(Av1LevelBuffer levels, int scanIndex)
     {
-        if (position.X == 0 && position.Y == 0)
+        if (scanIndex == 0)
         {
             return 0;
         }
 
         int total = levels.Size.Height * levels.Size.Width;
-        int index = position.X + (position.Y * levels.Size.Width);
-        if (index <= total >> 3)
+        if (scanIndex <= total >> 3)
         {
             return 1;
         }
 
-        if (index <= total >> 2)
+        if (scanIndex <= total >> 2)
         {
             return 2;
         }
@@ -275,13 +274,14 @@ internal static class Av1SymbolContextHelper
     internal static sbyte GetNzMapContext(
         Av1LevelBuffer levels,
         Point position,
+        int scanIndex,
         bool isEndOfBlock,
         Av1TransformSize transformSize,
         Av1TransformClass transformClass)
     {
         if (isEndOfBlock)
         {
-            return (sbyte)GetLowerLevelContextEndOfBlock(levels, position);
+            return (sbyte)GetLowerLevelContextEndOfBlock(levels, scanIndex);
         }
 
         int stats = Av1NzMap.GetNzMagnitude(levels, position, transformClass);
@@ -303,7 +303,7 @@ internal static class Av1SymbolContextHelper
         {
             int pos = scan[i];
             Point position = levels.GetPosition(pos);
-            coefficientContexts[pos] = GetNzMapContext(levels, position, i == eob - 1, transformSize, transformClass);
+            coefficientContexts[pos] = GetNzMapContext(levels, position, i, i == eob - 1, transformSize, transformClass);
         }
     }
 
