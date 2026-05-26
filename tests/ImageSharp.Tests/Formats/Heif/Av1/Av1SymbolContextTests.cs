@@ -19,12 +19,11 @@ public class Av1SymbolContextTests
         // Arrange
         Size size = new(width, height);
         Av1LevelBuffer levels = new(Configuration.Default, size);
-        Point position = levels.GetPosition(index);
         int blockWidthLog2 = Av1Math.Log2(width);
         int expectedContext = GetExpectedLowerLevelContextEndOfBlock(blockWidthLog2, height, index);
 
         // Act
-        int actualContext = Av1SymbolContextHelper.GetLowerLevelContextEndOfBlock(levels, position);
+        int actualContext = Av1SymbolContextHelper.GetLowerLevelContextEndOfBlock(levels, index);
 
         // Assert
         Assert.Equal(expectedContext, actualContext);

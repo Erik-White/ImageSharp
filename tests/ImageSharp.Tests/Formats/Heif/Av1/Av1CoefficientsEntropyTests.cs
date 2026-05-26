@@ -150,9 +150,18 @@ public class Av1CoefficientsEntropyTests
         int plane = Math.Min((int)componentType, 1);
         decoder.ReadCoefficients(modeInfo, new Point(0, 0), aboveContexts, leftContexts, 0, 0, plane, 1, 1, transformBlockContext, transformSize, false, true, transformInfo, 0, 0, actuals);
 
+        // Encoder reads input as natural-order sparse; decoder emits compact scan-order. Translate
+        // to compare apples-to-apples.
+        Av1ScanOrder scanOrder = Av1ScanOrderConstants.GetScanOrder(transformSize, transformType);
+        int[] expectedScanOrder = new int[endOfBlock];
+        for (int c = 0; c < endOfBlock; c++)
+        {
+            expectedScanOrder[c] = coefficientsBuffer[scanOrder.Scan[c]];
+        }
+
         // Assert
         Assert.Equal(endOfBlock, actuals[0]);
-        Assert.Equal(coefficientsBuffer[..endOfBlock], actuals[1..(endOfBlock + 1)]);
+        Assert.Equal(expectedScanOrder, actuals[1..(endOfBlock + 1)].ToArray());
     }
 
     public static TheoryData<int> GetTransformTypes()
