@@ -95,6 +95,39 @@ public class HeifLocationTests
     }
 
     [Fact]
+    public void FileOffsetIgnoresAnchorParameters()
+    {
+        // construction_method = 0: positions are absolute file offsets; anchors must not influence them.
+        HeifLocation loc = new(HeifLocationOffsetOrigin.FileOffset, baseOffset: 1000, offset: 250, length: 100);
+
+        long pos = loc.GetStreamPosition(positionOfMediaData: 9999, positionOfItem: 8888);
+
+        Assert.Equal(1250, pos);
+    }
+
+    [Fact]
+    public void ItemDataOffsetUsesIdatAnchor()
+    {
+        // construction_method = 1: anchor is the start of the idat box body.
+        HeifLocation loc = new(HeifLocationOffsetOrigin.ItemDataOffset, baseOffset: 8, offset: 32, length: 64);
+
+        long pos = loc.GetStreamPosition(positionOfMediaData: 5000, positionOfItem: 0);
+
+        Assert.Equal(5040, pos);
+    }
+
+    [Fact]
+    public void ItemOffsetUsesItemAnchor()
+    {
+        // construction_method = 2: anchor is the referenced item's data start.
+        HeifLocation loc = new(HeifLocationOffsetOrigin.ItemOffset, baseOffset: 4, offset: 16, length: 32);
+
+        long pos = loc.GetStreamPosition(positionOfMediaData: 0, positionOfItem: 7000);
+
+        Assert.Equal(7020, pos);
+    }
+
+    [Fact]
     public void CheckComparerOnHigherLocation()
     {
         // Arrange

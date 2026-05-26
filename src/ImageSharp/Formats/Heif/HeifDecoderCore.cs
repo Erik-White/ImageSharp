@@ -37,6 +37,12 @@ internal sealed class HeifDecoderCore : ImageDecoderCore
 
     private Av1CodecConfiguration av1CodecConfiguration;
 
+    private long idatBodyPosition = -1;
+
+    private long idatBodyLength;
+
+    private readonly List<(uint ItemId, HeifLocation Location)> pendingLocations = new();
+
     /// <summary>
     /// Initializes a new instance of the <see cref="HeifDecoderCore" /> class.
     /// </summary>
@@ -235,8 +241,12 @@ internal sealed class HeifDecoderCore : ImageDecoderCore
                 case Heif4CharCode.Iloc:
                     this.ParseItemLocation(stream, length);
                     break;
-                case Heif4CharCode.Dinf:
                 case Heif4CharCode.Idat:
+                    this.idatBodyPosition = stream.Position;
+                    this.idatBodyLength = length;
+                    SkipBox(stream, length);
+                    break;
+                case Heif4CharCode.Dinf:
                 case Heif4CharCode.Grpl:
                 case Heif4CharCode.Ipro:
                 case Heif4CharCode.Uuid:
@@ -248,6 +258,14 @@ internal sealed class HeifDecoderCore : ImageDecoderCore
                     throw new ImageFormatException($"Unknown metadata box type of '{PrettyPrint(boxType)}'");
             }
         }
+
+        foreach ((uint itemId, HeifLocation location) in this.pendingLocations)
+        {
+            HeifItem? item = this.FindItemById(itemId);
+            item?.DataLocations.Add(location);
+    }
+
+        this.pendingLocations.Clear();
     }
 
     private void ParseHandler(BufferedReadStream stream, long boxLength)
@@ -550,7 +568,6 @@ internal sealed class HeifDecoderCore : ImageDecoderCore
         for (uint i = 0; i < itemCount; i++)
         {
             uint itemId = ReadUInt16Or32(boxBuffer, version == 2, ref bytesRead);
-            HeifItem? item = this.FindItemById(itemId);
             HeifLocationOffsetOrigin constructionMethod = HeifLocationOffsetOrigin.FileOffset;
             if (version is 1 or 2)
             {
@@ -576,7 +593,10 @@ internal sealed class HeifDecoderCore : ImageDecoderCore
                 long extentOffset = ReadUIntVariable(boxBuffer, offsetSize, ref bytesRead);
                 long extentLength = ReadUIntVariable(boxBuffer, lengthSize, ref bytesRead);
                 HeifLocation loc = new(constructionMethod, baseOffset, extentOffset, extentLength);
-                item?.DataLocations.Add(loc);
+
+                // iloc may appear before iinf in the meta box, so defer item lookup
+                // until the whole meta box has been parsed.
+                this.pendingLocations.Add((itemId, loc));
             }
         }
     }
@@ -636,27 +656,59 @@ internal sealed class HeifDecoderCore : ImageDecoderCore
     {
         EnsureBoxBoundary(boxLength, stream);
 
-        IComparer<HeifLocation> comparer = new HeifLocationComparer(stream.Position, stream.Position);
-        SortedList<HeifLocation, HeifItem> locations = new(comparer);
-        foreach (HeifItem item in this.items)
+        // mdat anchors only items resolved relative to the file (FileOffset). ItemDataOffset
+        // anchors at the idat box body captured during meta parsing; ItemOffset anchors at
+        // another item's data which we resolve in a second pass after FileOffset/ItemDataOffset
+        // items are known.
+        long mdatBodyEnd = stream.Position + boxLength;
+        using DisposableDictionary<uint, IMemoryOwner<byte>> buffers = new(this.items.Count);
+
+        IEnumerable<HeifItem> orderedItems = this.items
+            .Where(i => i.DataLocations.Count > 0)
+            .OrderBy(i => GetReadOrder(i.DataLocations[0].Origin));
+        foreach (HeifItem item in orderedItems)
         {
             HeifLocation loc = item.DataLocations[0];
-            if (loc.Length != 0)
+            if (loc.Length == 0)
             {
-                locations[loc] = item;
+                continue;
             }
+
+            long streamPosition;
+            switch (loc.Origin)
+            {
+                case HeifLocationOffsetOrigin.FileOffset:
+                    streamPosition = loc.GetStreamPosition(0, 0);
+                    break;
+                case HeifLocationOffsetOrigin.ItemDataOffset:
+                    if (this.idatBodyPosition < 0)
+                    {
+                        throw new ImageFormatException("Item references idat box but none was parsed.");
+                    }
+
+                    streamPosition = loc.GetStreamPosition(this.idatBodyPosition, 0);
+                    if (streamPosition + loc.Length > this.idatBodyPosition + this.idatBodyLength)
+            {
+                        throw new ImageFormatException("Item extent exceeds idat box bounds.");
+            }
+
+                    break;
+                case HeifLocationOffsetOrigin.ItemOffset:
+                    throw new NotSupportedException("HEIF location construction_method=2 (ItemOffset) is not yet supported by this decoder.");
+                default:
+                    throw new ImageFormatException($"Unsupported HEIF location origin '{loc.Origin}'.");
         }
 
-        using DisposableDictionary<uint, IMemoryOwner<byte>> buffers = new(locations.Count);
-        foreach (HeifLocation loc in locations.Keys)
+            if (streamPosition < 0 || streamPosition + loc.Length > stream.Length)
         {
-            HeifItem item = locations[loc];
-            long streamPosition = loc.GetStreamPosition(stream.Position, stream.Position);
-            long dataLength = loc.Length;
-            stream.Skip((int)(streamPosition - stream.Position));
-            EnsureBoxBoundary(dataLength, stream);
-            buffers.Add(item.Id, this.ReadIntoBuffer(stream, dataLength));
+                throw new ImageFormatException($"HEIF item {item.Id} extent extends past stream end.");
+            }
+
+            stream.Position = streamPosition;
+            buffers.Add(item.Id, this.ReadIntoBuffer(stream, loc.Length));
         }
+
+        stream.Position = mdatBodyEnd;
 
         HeifItem? rootItem = this.FindItemById(this.primaryItem);
         if (rootItem == null)
@@ -669,8 +721,11 @@ internal sealed class HeifDecoderCore : ImageDecoderCore
         {
             itemDecoder = new GridHeifItemDecoder<TPixel>(this.configuration, this.items, this.itemLinks, buffers);
         }
+        else
+        {
+            itemDecoder = HeifCompressionFactory.GetDecoder<TPixel>(rootItem.Type);
+        }
 
-        itemDecoder = HeifCompressionFactory.GetDecoder<TPixel>(rootItem.Type);
         HeifItem itemToDecode = rootItem;
         if (itemDecoder == null)
         {
@@ -716,6 +771,14 @@ internal sealed class HeifDecoderCore : ImageDecoderCore
 
         return buffer;
     }
+
+    private static int GetReadOrder(HeifLocationOffsetOrigin origin) => origin switch
+    {
+        HeifLocationOffsetOrigin.FileOffset => 0,
+        HeifLocationOffsetOrigin.ItemDataOffset => 1,
+        HeifLocationOffsetOrigin.ItemOffset => 2,
+        _ => 3,
+    };
 
     private static void EnsureBoxBoundary(long boxLength, Stream stream)
         => EnsureBoxInsideParent(boxLength, stream.Length - stream.Position);

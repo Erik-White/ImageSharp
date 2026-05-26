@@ -52,21 +52,76 @@ internal sealed class HeifEncoderCore
         List<HeifItemLink> links = new();
         GenerateItems(image, pixels, items, links);
 
-        // Write out the generated header and pixels.
         this.WriteFileTypeBox(stream);
+
+        // Reserve space for the meta box; we patch iloc afterwards once the mdat offset
+        // is known. The meta box content's length depends on the items, but it does not
+        // include the pixel payload so we can write it before mdat.
+        long metaStartPos = stream.Position;
         this.WriteMetadataBox(items, links, stream);
+
+        long mdatHeaderPos = stream.Position;
         this.WriteMediaDataBox(pixels, stream);
+        long pixelDataPos = mdatHeaderPos + 8;
+
+        // Patch the iloc box's first extent offset to point at the pixel data start.
+        long ilocOffsetPosition = LocateIlocFirstExtentOffset(stream, metaStartPos);
+        long previousPos = stream.Position;
+        stream.Position = ilocOffsetPosition;
+        byte[] patch = new byte[4];
+        BinaryPrimitives.WriteUInt32BigEndian(patch, (uint)pixelDataPos);
+        stream.Write(patch);
+        stream.Position = previousPos;
         stream.Flush();
 
         HeifMetadata meta = image.Metadata.GetHeifMetadata();
         meta.CompressionMethod = HeifCompressionMethod.LegacyJpeg;
     }
 
+    private static long LocateIlocFirstExtentOffset(Stream stream, long metaBoxPosition)
+    {
+        // Walk from the start of the meta box body to find the iloc box, then return the
+        // file position of its first extent offset field.
+        long savedPos = stream.Position;
+        try
+        {
+            stream.Position = metaBoxPosition;
+            byte[] hdr = new byte[8];
+            stream.ReadExactly(hdr);
+            long metaSize = BinaryPrimitives.ReadUInt32BigEndian(hdr);
+            long metaEnd = metaBoxPosition + metaSize;
+            stream.Position = metaBoxPosition + 12;
+            while (stream.Position < metaEnd)
+            {
+                long boxStart = stream.Position;
+                stream.ReadExactly(hdr);
+                long boxSize = BinaryPrimitives.ReadUInt32BigEndian(hdr);
+                Heif4CharCode boxType = (Heif4CharCode)BinaryPrimitives.ReadUInt32BigEndian(hdr.AsSpan(4));
+                if (boxType == Heif4CharCode.Iloc)
+                {
+                    // Layout matches WriteItemLocationBox: 8 (size+type) + 4 (version+flags)
+                    // + 1 (offset/length sizes) + 1 (baseOffset/index sizes) + 2 (itemCount)
+                    // + 2 (itemId) + 4 (reserved+constructionMethod+dataRefIndex)
+                    // + 2 (extentCount) = 24 bytes before the first extent_offset.
+                    return boxStart + 24;
+                }
+
+                stream.Position = boxStart + boxSize;
+            }
+
+            throw new InvalidOperationException("iloc box not found in encoded meta box.");
+        }
+        finally
+        {
+            stream.Position = savedPos;
+        }
+    }
+
     private static void GenerateItems<TPixel>(Image<TPixel> image, byte[] pixels, List<HeifItem> items, List<HeifItemLink> links)
         where TPixel : unmanaged, IPixel<TPixel>
     {
         HeifItem primaryItem = new(Heif4CharCode.Jpeg, 1u);
-        primaryItem.DataLocations.Add(new HeifLocation(HeifLocationOffsetOrigin.ItemDataOffset, 0L, 0L, pixels.LongLength));
+        primaryItem.DataLocations.Add(new HeifLocation(HeifLocationOffsetOrigin.FileOffset, 0L, 0L, pixels.LongLength));
         primaryItem.BitsPerPixel = 24;
         primaryItem.ChannelCount = 3;
         primaryItem.SetExtent(image.Size);
