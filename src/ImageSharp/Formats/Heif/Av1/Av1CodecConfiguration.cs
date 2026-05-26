@@ -33,6 +33,23 @@ internal struct Av1CodecConfiguration
             byte initialPresentationDelayMinusOne = (byte)reader.ReadLiteral(4);
             this.InitialPresentationDelay = (byte)(initialPresentationDelayMinusOne + 1);
         }
+        else
+        {
+            // Reserved bits to keep the header byte-aligned.
+            reader.ReadLiteral(4);
+        }
+
+        // The remaining bytes are configOBUs[] containing sequence-header and metadata OBUs
+        // that must be prepended to the item bitstream before AV1 decoding.
+        int configObusByteOffset = (reader.BitPosition + 7) >> 3;
+        if (configObusByteOffset < boxBuffer.Length)
+        {
+            this.ConfigObus = boxBuffer[configObusByteOffset..].ToArray();
+        }
+        else
+        {
+            this.ConfigObus = [];
+        }
     }
 
     public byte Marker { get; }
@@ -60,4 +77,10 @@ internal struct Av1CodecConfiguration
     public bool InitialPresentationDelayPresent { get; }
 
     public byte InitialPresentationDelay { get; }
+
+    /// <summary>
+    /// Gets the configOBUs bytes that must be prepended to the item bitstream when decoding.
+    /// Typically contains a sequence-header OBU and optionally metadata OBUs.
+    /// </summary>
+    public byte[] ConfigObus { get; }
 }

@@ -74,6 +74,12 @@ internal class HeifItem(Heif4CharCode type, uint id)
     public List<HeifLocation> DataLocations { get; } = [];
 
     /// <summary>
+    /// Gets or sets the raw codec configuration bytes (e.g. AV1 configOBUs) to prepend
+    /// to this item's bitstream when decoding.
+    /// </summary>
+    public byte[]? CodecConfig { get; set; }
+
+    /// <summary>
     /// Set the image extent.
     /// </summary>
     /// <param name="extent">The size to set the extent to.</param>

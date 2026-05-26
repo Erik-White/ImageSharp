@@ -263,7 +263,7 @@ internal sealed class HeifDecoderCore : ImageDecoderCore
         {
             HeifItem? item = this.FindItemById(itemId);
             item?.DataLocations.Add(location);
-    }
+        }
 
         this.pendingLocations.Clear();
     }
@@ -485,7 +485,9 @@ internal sealed class HeifDecoderCore : ImageDecoderCore
 
                     break;
                 case Heif4CharCode.Av1C:
-                    this.av1CodecConfiguration = new(boxBuffer);
+                    Av1CodecConfiguration codecConfig = new(boxBuffer);
+                    this.av1CodecConfiguration = codecConfig;
+                    properties.Add(new KeyValuePair<Heif4CharCode, object>(Heif4CharCode.Av1C, codecConfig));
                     break;
                 case Heif4CharCode.Altt:
                 case Heif4CharCode.Imir:
@@ -539,6 +541,9 @@ internal sealed class HeifDecoderCore : ImageDecoderCore
                     int[] values = (int[])prop.Value;
                     this.items[itemId].ChannelCount = values[0];
                     this.items[itemId].BitsPerPixel = values[1];
+                    break;
+                case Heif4CharCode.Av1C:
+                    this.items[itemId].CodecConfig = ((Av1CodecConfiguration)prop.Value).ConfigObus;
                     break;
             }
         }
@@ -688,19 +693,19 @@ internal sealed class HeifDecoderCore : ImageDecoderCore
 
                     streamPosition = loc.GetStreamPosition(this.idatBodyPosition, 0);
                     if (streamPosition + loc.Length > this.idatBodyPosition + this.idatBodyLength)
-            {
+                    {
                         throw new ImageFormatException("Item extent exceeds idat box bounds.");
-            }
+                    }
 
                     break;
                 case HeifLocationOffsetOrigin.ItemOffset:
                     throw new NotSupportedException("HEIF location construction_method=2 (ItemOffset) is not yet supported by this decoder.");
                 default:
                     throw new ImageFormatException($"Unsupported HEIF location origin '{loc.Origin}'.");
-        }
+            }
 
             if (streamPosition < 0 || streamPosition + loc.Length > stream.Length)
-        {
+            {
                 throw new ImageFormatException($"HEIF item {item.Id} extent extends past stream end.");
             }
 

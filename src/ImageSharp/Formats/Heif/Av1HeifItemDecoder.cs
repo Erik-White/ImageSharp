@@ -28,6 +28,15 @@ internal class Av1HeifItemDecoder<TPixel> : IHeifItemDecoder<TPixel>
     public Image<TPixel> DecodeItemData(Configuration configuration, HeifItem item, Span<byte> data)
     {
         Av1Decoder decoder = new(configuration);
+        byte[]? configObus = item.CodecConfig;
+        if (configObus is { Length: > 0 })
+        {
+            byte[] combined = new byte[configObus.Length + data.Length];
+            configObus.AsSpan().CopyTo(combined);
+            data.CopyTo(combined.AsSpan(configObus.Length));
+            return decoder.Decode<TPixel>(combined);
+        }
+
         return decoder.Decode<TPixel>(data);
     }
 }
