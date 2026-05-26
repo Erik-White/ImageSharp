@@ -51,6 +51,8 @@ internal class Av1PredictionDecoder
 
         if (plane != Av1Plane.Y && partitionInfo.ModeInfo.UvMode == Av1PredictionMode.UvChromaFromLuma)
         {
+            // SVT/libaom: the underlying intra step for CFL chroma uses DC_PRED;
+            // CFL alpha is then applied on top by PredictChromaFromLumaBlock.
             this.PredictIntraBlock(
                 partitionInfo,
                 plane,
@@ -61,7 +63,7 @@ internal class Av1PredictionDecoder
                 topNeighbor,
                 leftNeighbor,
                 stride,
-                mode,
+                Av1PredictionMode.DC,
                 blockModeInfoColumnOffset,
                 blockModeInfoRowOffset,
                 bitDepth);
@@ -109,7 +111,7 @@ internal class Av1PredictionDecoder
             chromaFromLumaContext.ComputeParameters(transformSize);
         }
 
-        int alphaQ3 = ChromaFromLumaIndexToAlpha(modeInfo.ChromaFromLumaAlphaIndex, modeInfo.ChromaFromLumaAlphaSign, (Av1Plane)((int)plane - 1));
+        int alphaQ3 = ChromaFromLumaIndexToAlpha(modeInfo.ChromaFromLumaAlphaIndex, modeInfo.ChromaFromLumaAlphaSign, plane);
 
         // assert((transformSize.GetHeight() - 1) * CFL_BUF_LINE + transformSize.GetWidth() <= CFL_BUF_SQUARE);
         Av1BitDepth bitDepth = this.sequenceHeader.ColorConfig.BitDepth;
@@ -178,6 +180,8 @@ internal class Av1PredictionDecoder
         return Av1Math.RoundPowerOf2Signed(scaledLumaQ6, 6);
     }
 
+    private const int ChromaFromLumaBufferLine = 32;
+
     private static void ChromaFromLumaPredict(Span<short> predictedBufferQ3, Span<byte> predictedBuffer, int predictedStride, Span<byte> destinationBuffer, int destinationStride, int alphaQ3, Av1BitDepth bitDepth, int width, int height)
     {
         // TODO: Make SIMD variant of this method.
@@ -190,9 +194,12 @@ internal class Av1PredictionDecoder
                 destinationBuffer[i] = (byte)Av1Math.Clamp(alphaQ0 + predictedBuffer[i], 0, maxPixelValue);
             }
 
-            destinationBuffer = destinationBuffer[width..];
-            predictedBuffer = predictedBuffer[width..];
-            predictedBufferQ3 = predictedBufferQ3[width..];
+            if (j < height - 1)
+            {
+                destinationBuffer = destinationBuffer[destinationStride..];
+                predictedBuffer = predictedBuffer[predictedStride..];
+                predictedBufferQ3 = predictedBufferQ3[ChromaFromLumaBufferLine..];
+            }
         }
     }
 

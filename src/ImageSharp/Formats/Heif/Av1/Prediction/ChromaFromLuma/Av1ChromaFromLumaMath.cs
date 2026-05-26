@@ -7,6 +7,7 @@ internal static class Av1ChromaFromLumaMath
 {
     private const int Signs = 3;
     private const int AlphabetSizeLog2 = 4;
+    private const int AlphabetSize = 1 << AlphabetSizeLog2;
 
     public const int SignZero = 0;
     public const int SignNegative = 1;
@@ -18,7 +19,7 @@ internal static class Av1ChromaFromLumaMath
 
     public static int IndexU(int index) => index >> AlphabetSizeLog2;
 
-    public static int IndexV(int index) => index & (AlphabetSizeLog2 - 1);
+    public static int IndexV(int index) => index & (AlphabetSize - 1);
 
     public static int ContextU(int jointSign) => jointSign + 1 - Signs;
 
