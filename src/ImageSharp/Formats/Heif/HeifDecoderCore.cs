@@ -11,6 +11,7 @@ using SixLabors.ImageSharp.Memory;
 using SixLabors.ImageSharp.Metadata;
 using SixLabors.ImageSharp.Metadata.Profiles.Icc;
 using SixLabors.ImageSharp.PixelFormats;
+using SixLabors.ImageSharp.Processing;
 
 namespace SixLabors.ImageSharp.Formats.Heif;
 
@@ -127,15 +128,16 @@ internal sealed class HeifDecoderCore : ImageDecoderCore
             }
         }
 
-        HeifItem? item = this.FindItemById(this.primaryItem);
-        if (item == null)
-        {
-            throw new ImageFormatException("No primary item found");
-        }
+        HeifItem? item = this.FindItemById(this.primaryItem) ?? throw new ImageFormatException("No primary item found");
 
         this.UpdateMetadata(this.metadata, item);
 
-        return new ImageInfo(new(item.Extent.Width, item.Extent.Height), this.metadata);
+        // Mirror does not change dimensions, but a 90°/270° rotation swaps width and height.
+        bool swapAxes = (item.RotationCount & 0x1) != 0;
+        int width = swapAxes ? item.Extent.Height : item.Extent.Width;
+        int height = swapAxes ? item.Extent.Width : item.Extent.Height;
+
+        return new ImageInfo(new(width, height), this.metadata);
     }
 
     private bool CheckFileTypeBox(BufferedReadStream stream)
@@ -489,9 +491,17 @@ internal sealed class HeifDecoderCore : ImageDecoderCore
                     this.av1CodecConfiguration = codecConfig;
                     properties.Add(new KeyValuePair<Heif4CharCode, object>(Heif4CharCode.Av1C, codecConfig));
                     break;
-                case Heif4CharCode.Altt:
-                case Heif4CharCode.Imir:
                 case Heif4CharCode.Irot:
+                    // ISO/IEC 23008-12 §6.5.10: lower 2 bits encode CCW rotation as multiple of 90°.
+                    properties.Add(new KeyValuePair<Heif4CharCode, object>(Heif4CharCode.Irot, boxBuffer[0] & 0x3));
+                    break;
+                case Heif4CharCode.Imir:
+                    // ISO/IEC 23008-12 §6.5.12: lowest bit 0 = mirror across vertical axis (horizontal flip),
+                    // 1 = mirror across horizontal axis (vertical flip).
+                    FlipMode mirror = (boxBuffer[0] & 0x1) == 0 ? FlipMode.Horizontal : FlipMode.Vertical;
+                    properties.Add(new KeyValuePair<Heif4CharCode, object>(Heif4CharCode.Imir, mirror));
+                    break;
+                case Heif4CharCode.Altt:
                 case Heif4CharCode.Iscl:
                 case Heif4CharCode.HvcC:
                 case Heif4CharCode.Rloc:
@@ -544,6 +554,12 @@ internal sealed class HeifDecoderCore : ImageDecoderCore
                     break;
                 case Heif4CharCode.Av1C:
                     this.items[itemId].CodecConfig = ((Av1CodecConfiguration)prop.Value).ConfigObus;
+                    break;
+                case Heif4CharCode.Irot:
+                    this.items[itemId].RotationCount = (int)prop.Value;
+                    break;
+                case Heif4CharCode.Imir:
+                    this.items[itemId].MirrorMode = (FlipMode)prop.Value;
                     break;
             }
         }
@@ -759,7 +775,46 @@ internal sealed class HeifDecoderCore : ImageDecoderCore
         meta.CompressionMethod = itemDecoder.CompressionMethod;
 
         IMemoryOwner<byte> itemMemory = buffers[itemToDecode.Id];
-        return itemDecoder.DecodeItemData(this.configuration, itemToDecode, itemMemory.GetSpan());
+        Image<TPixel> decoded = itemDecoder.DecodeItemData(this.configuration, itemToDecode, itemMemory.GetSpan());
+        ApplyOrientation(decoded, itemToDecode);
+        return decoded;
+    }
+
+    /// <summary>
+    /// Applies <c>imir</c> then <c>irot</c> to the decoded image, matching the order
+    /// HEIF readers use to recover display orientation (mirror first, then rotate CCW).
+    /// </summary>
+    internal static void ApplyOrientation<TPixel>(Image<TPixel> image, HeifItem item)
+        where TPixel : unmanaged, IPixel<TPixel>
+    {
+        FlipMode mirror = item.MirrorMode;
+        int rotationCount = item.RotationCount & 0x3;
+        if (mirror == FlipMode.None && rotationCount == 0)
+        {
+            return;
+        }
+
+        // ImageSharp Rotate is clockwise; irot is counter-clockwise. 90° CCW == 270° CW.
+        RotateMode rotation = rotationCount switch
+        {
+            1 => RotateMode.Rotate270,
+            2 => RotateMode.Rotate180,
+            3 => RotateMode.Rotate90,
+            _ => RotateMode.None,
+        };
+
+        image.Mutate(ctx =>
+        {
+            if (mirror != FlipMode.None)
+            {
+                ctx.Flip(mirror);
+            }
+
+            if (rotation != RotateMode.None)
+            {
+                ctx.Rotate(rotation);
+            }
+        });
     }
 
     private static void SkipBox(Stream stream, long boxLength)

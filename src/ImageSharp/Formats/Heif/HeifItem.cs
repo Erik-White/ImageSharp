@@ -1,6 +1,8 @@
 // Copyright (c) Six Labors.
 // Licensed under the Six Labors Split License.
 
+using SixLabors.ImageSharp.Processing;
+
 namespace SixLabors.ImageSharp.Formats.Heif;
 
 /// <summary>
@@ -78,6 +80,17 @@ internal class HeifItem(Heif4CharCode type, uint id)
     /// to this item's bitstream when decoding.
     /// </summary>
     public byte[]? CodecConfig { get; set; }
+
+    /// <summary>
+    /// Gets or sets the counter-clockwise rotation expressed as a multiple of 90°
+    /// (range 0-3) to apply to the decoded image, sourced from the <c>irot</c> property.
+    /// </summary>
+    public int RotationCount { get; set; }
+
+    /// <summary>
+    /// Gets or sets the mirror axis to apply to the decoded image. Applied before <see cref="RotationCount"/>.
+    /// </summary>
+    public FlipMode MirrorMode { get; set; }
 
     /// <summary>
     /// Set the image extent.
