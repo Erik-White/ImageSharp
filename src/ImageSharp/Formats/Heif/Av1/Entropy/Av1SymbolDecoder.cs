@@ -26,6 +26,10 @@ internal ref struct Av1SymbolDecoder
     private readonly Av1Distribution[] filterIntra = Av1DefaultDistributions.FilterIntra;
     private readonly Av1Distribution[][] paletteYMode = Av1DefaultDistributions.PaletteYMode;
     private readonly Av1Distribution[] paletteUvMode = Av1DefaultDistributions.PaletteUvMode;
+    private readonly Av1Distribution[] paletteYSize = Av1DefaultDistributions.PaletteYSize;
+    private readonly Av1Distribution[] paletteUvSize = Av1DefaultDistributions.PaletteUvSize;
+    private readonly Av1Distribution[][] paletteYColorIndex = Av1DefaultDistributions.PaletteYColorIndex;
+    private readonly Av1Distribution[][] paletteUvColorIndex = Av1DefaultDistributions.PaletteUvColorIndex;
     private readonly Av1Distribution[][] transformSize = Av1DefaultDistributions.TransformSize;
     private readonly Av1Distribution[][][] endOfBlockFlag;
     private readonly Av1Distribution[][][] coefficientsBase;
@@ -197,6 +201,41 @@ internal ref struct Av1SymbolDecoder
     {
         ref Av1SymbolReader r = ref this.reader;
         return r.ReadSymbol(this.paletteUvMode[paletteUvModeCtx]) > 0;
+    }
+
+    /// <summary>Reads (palette_size_y - 2). 5.11.46.</summary>
+    public int ReadPaletteSizeY(int bsizeCtx)
+    {
+        ref Av1SymbolReader r = ref this.reader;
+        return r.ReadSymbol(this.paletteYSize[bsizeCtx]);
+    }
+
+    /// <summary>Reads (palette_size_uv - 2). 5.11.46.</summary>
+    public int ReadPaletteSizeUv(int bsizeCtx)
+    {
+        ref Av1SymbolReader r = ref this.reader;
+        return r.ReadSymbol(this.paletteUvSize[bsizeCtx]);
+    }
+
+    /// <summary>Reads a Y palette color index. 5.11.49.</summary>
+    public int ReadPaletteColorIdxY(int paletteSize, int colorCtx)
+    {
+        ref Av1SymbolReader r = ref this.reader;
+        return r.ReadSymbol(this.paletteYColorIndex[paletteSize - 2][colorCtx]);
+    }
+
+    /// <summary>Reads a UV palette color index. 5.11.49.</summary>
+    public int ReadPaletteColorIdxUv(int paletteSize, int colorCtx)
+    {
+        ref Av1SymbolReader r = ref this.reader;
+        return r.ReadSymbol(this.paletteUvColorIndex[paletteSize - 2][colorCtx]);
+    }
+
+    /// <summary>Reads a single bit literal. Used by palette cache and palette colors.</summary>
+    public int ReadLiteral(int bitCount)
+    {
+        ref Av1SymbolReader r = ref this.reader;
+        return r.ReadLiteral(bitCount);
     }
 
     public Av1FilterIntraMode ReadFilterUltraMode(Av1BlockSize blockSize)

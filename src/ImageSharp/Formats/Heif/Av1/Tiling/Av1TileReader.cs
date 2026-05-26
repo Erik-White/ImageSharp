@@ -7,6 +7,7 @@ using SixLabors.ImageSharp.Formats.Heif.Av1.Entropy;
 using SixLabors.ImageSharp.Formats.Heif.Av1.OpenBitstreamUnit;
 using SixLabors.ImageSharp.Formats.Heif.Av1.Pipeline;
 using SixLabors.ImageSharp.Formats.Heif.Av1.Prediction;
+using SixLabors.ImageSharp.Formats.Heif.Av1.Tiling.Palette;
 using SixLabors.ImageSharp.Formats.Heif.Av1.Transform;
 
 namespace SixLabors.ImageSharp.Formats.Heif.Av1.Tiling;
@@ -342,7 +343,7 @@ internal class Av1TileReader : IAv1TileReader
         }
 
         this.ReadModeInfo(ref reader, partitionInfo);
-        ReadPaletteTokens(ref reader, partitionInfo);
+        Av1PaletteDecoder.ReadPaletteTokens(ref reader, partitionInfo, this.SequenceHeader);
         this.ReadBlockTransformSize(ref reader, modeInfoLocation, partitionInfo, superblockInfo, tileInfo);
         if (partitionInfo.ModeInfo.Skip)
         {
@@ -909,24 +910,6 @@ internal class Av1TileReader : IAv1TileReader
     }
 
     /// <summary>
-    /// 5.11.49. Palette tokens syntax.
-    /// </summary>
-    private static void ReadPaletteTokens(ref Av1SymbolDecoder reader, Av1PartitionInfo partitionInfo)
-    {
-        if (partitionInfo.ModeInfo.GetPaletteSize(Av1PlaneType.Y) != 0)
-        {
-            // TODO: Implement.
-            throw new NotImplementedException();
-        }
-
-        if (partitionInfo.ModeInfo.GetPaletteSize(Av1PlaneType.Uv) != 0)
-        {
-            // TODO: Implement.
-            throw new NotImplementedException();
-        }
-    }
-
-    /// <summary>
     /// 5.11.6. Mode info syntax.
     /// </summary>
     private void ReadModeInfo(ref Av1SymbolDecoder reader, Av1PartitionInfo partitionInfo)
@@ -963,13 +946,13 @@ internal class Av1TileReader : IAv1TileReader
         partitionInfo.ReferenceFrame[0] = 0; // IntraFrame;
         partitionInfo.ReferenceFrame[1] = -1; // None;
         partitionInfo.ModeInfo.SetPaletteSizes(0, 0);
-        bool useIntraBlockCopy = false;
+        partitionInfo.ModeInfo.UseIntraBlockCopy = false;
         if (this.AllowIntraBlockCopy())
         {
-            useIntraBlockCopy = reader.ReadUseIntraBlockCopy();
+            partitionInfo.ModeInfo.UseIntraBlockCopy = reader.ReadUseIntraBlockCopy();
         }
 
-        if (useIntraBlockCopy)
+        if (partitionInfo.ModeInfo.UseIntraBlockCopy)
         {
             partitionInfo.ModeInfo.YMode = Av1PredictionMode.DC;
             partitionInfo.ModeInfo.UvMode = Av1PredictionMode.DC;
@@ -1002,7 +985,7 @@ internal class Av1TileReader : IAv1TileReader
                 partitionInfo.ModeInfo.BlockSize.GetHeight() <= 64 &&
                 this.FrameHeader.AllowScreenContentTools)
             {
-                PaletteModeInfo(ref reader, partitionInfo);
+                Av1PaletteDecoder.ReadPaletteModeInfo(ref reader, partitionInfo, this.SequenceHeader);
             }
 
             this.FilterIntraModeInfo(ref reader, partitionInfo);
@@ -1045,41 +1028,6 @@ internal class Av1TileReader : IAv1TileReader
                 partitionInfo.ModeInfo.FilterIntraModeInfo.Mode = filterIntraMode;
             }
         }
-    }
-
-    /// <summary>
-    /// 5.11.46. Palette mode info syntax.
-    /// </summary>
-    private static void PaletteModeInfo(ref Av1SymbolDecoder reader, Av1PartitionInfo partitionInfo)
-    {
-        Av1BlockModeInfo modeInfo = partitionInfo.ModeInfo;
-        Av1BlockSize blockSize = modeInfo.BlockSize;
-        int bsizeCtx = blockSize.Get4x4WidthLog2() + blockSize.Get4x4HeightLog2() - 2;
-
-        int paletteSizeY = 0;
-        int paletteSizeUv = 0;
-
-        if (modeInfo.YMode == Av1PredictionMode.DC)
-        {
-            int aboveY = partitionInfo.AboveModeInfo?.GetPaletteSize(Av1PlaneType.Y) > 0 ? 1 : 0;
-            int leftY = partitionInfo.LeftModeInfo?.GetPaletteSize(Av1PlaneType.Y) > 0 ? 1 : 0;
-            int paletteModeCtx = aboveY + leftY;
-            if (reader.ReadHasPaletteY(bsizeCtx, paletteModeCtx))
-            {
-                throw new NotImplementedException("Palette colour decoding not implemented.");
-            }
-        }
-
-        if (partitionInfo.IsChroma && modeInfo.UvMode == Av1PredictionMode.DC)
-        {
-            int paletteUvModeCtx = paletteSizeY > 0 ? 1 : 0;
-            if (reader.ReadHasPaletteUv(paletteUvModeCtx))
-            {
-                throw new NotImplementedException("Palette colour decoding not implemented.");
-            }
-        }
-
-        modeInfo.SetPaletteSizes(paletteSizeY, paletteSizeUv);
     }
 
     /// <summary>

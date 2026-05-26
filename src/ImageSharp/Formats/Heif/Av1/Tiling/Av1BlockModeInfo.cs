@@ -7,6 +7,8 @@ namespace SixLabors.ImageSharp.Formats.Heif.Av1.Tiling;
 
 internal class Av1BlockModeInfo
 {
+    public const int PaletteMaxSize = 8;
+
     private int[] paletteSize;
 
     public Av1BlockModeInfo(int numPlanes, Av1BlockSize blockSize, Point positionInSuperblock)
@@ -15,6 +17,9 @@ internal class Av1BlockModeInfo
         this.PositionInSuperblock = positionInSuperblock;
         this.AngleDelta = new int[numPlanes - 1];
         this.paletteSize = new int[numPlanes - 1];
+        this.PaletteColorsY = [];
+        this.PaletteColorsU = [];
+        this.PaletteColorsV = [];
         this.FilterIntraModeInfo = new();
         this.FirstTransformLocation = new int[numPlanes - 1];
         this.TransformUnitsCount = new int[numPlanes - 1];
@@ -40,7 +45,7 @@ internal class Av1BlockModeInfo
     /// </summary>
     public Av1PredictionMode UvMode { get; set; }
 
-    public bool UseUltraBlockCopy { get; set; }
+    public bool UseIntraBlockCopy { get; set; }
 
     public int ChromaFromLumaAlphaIndex { get; set; }
 
@@ -61,6 +66,21 @@ internal class Av1BlockModeInfo
     public int[] FirstTransformLocation { get; }
 
     public int[] TransformUnitsCount { get; internal set; }
+
+    /// <summary>
+    /// Gets or sets the sorted base colors for the luminance palette (length == GetPaletteSize(Y)).
+    /// </summary>
+    public ushort[] PaletteColorsY { get; set; }
+
+    /// <summary>
+    /// Gets or sets the sorted base colors for the U palette (length == GetPaletteSize(Uv)).
+    /// </summary>
+    public ushort[] PaletteColorsU { get; set; }
+
+    /// <summary>
+    /// Gets or sets the V palette colors (length == GetPaletteSize(Uv); not sorted, U is the cache key).
+    /// </summary>
+    public ushort[] PaletteColorsV { get; set; }
 
     public int GetPaletteSize(Av1Plane plane) => this.paletteSize[Math.Min(1, (int)plane)];
 
