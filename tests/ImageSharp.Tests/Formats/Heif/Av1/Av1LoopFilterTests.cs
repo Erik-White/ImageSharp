@@ -212,8 +212,7 @@ public class Av1LoopFilterTests
 
         // Passing nulls for frameInfo/frameBuffer asserts the early-return doesn't touch them:
         // any access would surface as NullReferenceException.
-        Av1LoopFilterDecoder decoder = new(sequenceHeader, frameHeader, frameInfo: null!, frameBuffer: null!);
-        Exception? thrown = Record.Exception(() => decoder.DecodeFrame());
+        Exception? thrown = Record.Exception(() => Av1LoopFilterDecoder.DecodeFrame(sequenceHeader, frameHeader, frameInfo: null!, frameBuffer: null!));
         Assert.Null(thrown);
     }
 

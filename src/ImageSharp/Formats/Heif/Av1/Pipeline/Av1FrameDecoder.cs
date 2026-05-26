@@ -40,8 +40,7 @@ internal class Av1FrameDecoder : IAv1FrameDecoder
         bool doLoopRestoration = false;
         bool doUpscale = false;
 
-        Av1LoopFilterDecoder loopFilter = new(this.sequenceHeader, this.frameHeader, this.frameInfo, this.frameBuffer);
-        loopFilter.DecodeFrame();
+        Av1LoopFilterDecoder.DecodeFrame(this.sequenceHeader, this.frameHeader, this.frameInfo, this.frameBuffer);
 
         if (doLoopRestoration)
         {
