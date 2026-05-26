@@ -23,13 +23,12 @@ internal class Av1ParseAboveNeighbor4x4Context
 
     public Av1ParseAboveNeighbor4x4Context(int planesCount, int modeInfoColumnCount)
     {
-        int wide64x64Count = Av1BlockSize.Block64x64.Get4x4WideCount();
         this.AboveTransformWidth = new int[modeInfoColumnCount];
         this.AbovePartitionWidth = new int[modeInfoColumnCount];
         for (int i = 0; i < planesCount; i++)
         {
             this.aboveContext[i] = new int[modeInfoColumnCount];
-            this.abovePaletteColors[i] = new int[wide64x64Count * Av1Constants.PaletteMaxSize];
+            this.abovePaletteColors[i] = new int[modeInfoColumnCount * Av1Constants.PaletteMaxSize];
         }
 
         this.aboveSegmentIdPredictionContext = new int[modeInfoColumnCount];
@@ -57,7 +56,7 @@ internal class Av1ParseAboveNeighbor4x4Context
         for (int i = 0; i < planeCount; i++)
         {
             Array.Fill(this.aboveContext[i], 0, 0, width);
-            Array.Fill(this.abovePaletteColors[i], 0, 0, width);
+            Array.Fill(this.abovePaletteColors[i], 0, 0, width * Av1Constants.PaletteMaxSize);
         }
 
         Array.Fill(this.aboveSegmentIdPredictionContext, 0, 0, width);
