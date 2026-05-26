@@ -906,7 +906,7 @@ internal class ObuReader
 
         if (frameHeader.AllowScreenContentTools)
         {
-            if (sequenceHeader.ForceIntegerMotionVector == 1)
+            if (sequenceHeader.ForceIntegerMotionVector == 2)
             {
                 frameHeader.ForceIntegerMotionVector = reader.ReadBoolean();
             }
@@ -1581,7 +1581,7 @@ internal class ObuReader
     {
         ObuConstraintDirectionalEnhancementFilterParameters cdefInfo = frameHeader.CdefParameters;
         bool multiPlane = sequenceHeader.ColorConfig.PlaneCount > 1;
-        if (frameHeader.CodedLossless || frameHeader.AllowIntraBlockCopy || sequenceHeader.CdefLevel == 0)
+        if (frameHeader.CodedLossless || frameHeader.AllowIntraBlockCopy || !sequenceHeader.EnableCdef)
         {
             cdefInfo.BitCount = 0;
             cdefInfo.YStrength[0] = 0;
