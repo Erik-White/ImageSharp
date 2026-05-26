@@ -12,6 +12,7 @@ namespace SixLabors.ImageSharp.Formats.Heif.Av1.Prediction;
 internal class Av1PredictionDecoder
 {
     private const int MaxUpsampleSize = 16;
+    private const int ChromaFromLumaBufferLine = 32;
 
     private readonly ObuSequenceHeader sequenceHeader;
     private readonly ObuFrameHeader frameHeader;
@@ -179,8 +180,6 @@ internal class Av1PredictionDecoder
         int scaledLumaQ6 = alphaQ3 * predictedQ3;
         return Av1Math.RoundPowerOf2Signed(scaledLumaQ6, 6);
     }
-
-    private const int ChromaFromLumaBufferLine = 32;
 
     private static void ChromaFromLumaPredict(Span<short> predictedBufferQ3, Span<byte> predictedBuffer, int predictedStride, Span<byte> destinationBuffer, int destinationStride, int alphaQ3, Av1BitDepth bitDepth, int width, int height)
     {
