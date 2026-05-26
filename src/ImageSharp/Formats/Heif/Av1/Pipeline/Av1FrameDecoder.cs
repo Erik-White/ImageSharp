@@ -2,6 +2,7 @@
 // Licensed under the Six Labors Split License.
 
 using SixLabors.ImageSharp.Formats.Heif.Av1.OpenBitstreamUnit;
+using SixLabors.ImageSharp.Formats.Heif.Av1.Pipeline.LoopFilter;
 using SixLabors.ImageSharp.Formats.Heif.Av1.Pipeline.Quantification;
 using SixLabors.ImageSharp.Formats.Heif.Av1.Tiling;
 using SixLabors.ImageSharp.Formats.Heif.Av1.Transform;
@@ -36,13 +37,11 @@ internal class Av1FrameDecoder : IAv1FrameDecoder
             this.DecodeFrameTiles(column);
         }
 
-        bool doLoopFilterFlag = false;
         bool doLoopRestoration = false;
         bool doUpscale = false;
-        if (doLoopFilterFlag)
-        {
-            this.DecodeLoopFilterForFrame();
-        }
+
+        Av1LoopFilterDecoder loopFilter = new(this.sequenceHeader, this.frameHeader, this.frameInfo, this.frameBuffer);
+        loopFilter.DecodeFrame();
 
         if (doLoopRestoration)
         {
@@ -127,43 +126,6 @@ internal class Av1FrameDecoder : IAv1FrameDecoder
             Av1BlockSize subSize = modeInfo.BlockSize;
             Point globalPosition = new(modeInfoPosition.X + subPosition.X, modeInfoPosition.Y + subPosition.Y);
             this.blockDecoder.DecodeBlock(modeInfo, globalPosition, subSize, superblockInfo, tileInfo);
-        }
-    }
-
-    private void DecodeLoopFilterForFrame()
-    {
-        int superblockSizeLog2 = this.sequenceHeader.SuperblockSizeLog2;
-        int pictureWidthInSuperblocks = Av1Math.DivideLog2Ceiling(this.frameHeader.FrameSize.FrameWidth, this.sequenceHeader.SuperblockSizeLog2);
-        int pictureHeightInSuperblocks = Av1Math.DivideLog2Ceiling(this.frameHeader.FrameSize.FrameHeight, this.sequenceHeader.SuperblockSizeLog2);
-
-        // Loop over a frame : tregger dec_loop_filter_sb for each SB
-        for (int superblockIndexY = 0; superblockIndexY < pictureHeightInSuperblocks; ++superblockIndexY)
-        {
-            for (int superblockIndexX = 0; superblockIndexX < pictureWidthInSuperblocks; ++superblockIndexX)
-            {
-                int superblockOriginX = superblockIndexX << superblockSizeLog2;
-                int superblockOriginY = superblockIndexY << superblockSizeLog2;
-                bool endOfRowFlag = superblockIndexX == pictureWidthInSuperblocks - 1;
-
-                Point superblockPoint = new(superblockOriginX, superblockOriginY);
-                Av1SuperblockInfo superblockInfo = this.frameInfo.GetSuperblock(superblockPoint);
-
-                // LF function for a SB
-                /*
-                DecodeLoopFilterForSuperblock(
-                    superblockInfo,
-                    this.frameHeader,
-                    this.sequenceHeader,
-                    reconstructionFrameBuffer,
-                    loopFilterContext,
-                    superblockOriginY >> 2,
-                    superblockOriginX >> 2,
-                    Av1Plane.Y,
-                    3,
-                    endOfRowFlag,
-                    superblockInfo.SuperblockDeltaLoopFilter);
-                */
-            }
         }
     }
 }
