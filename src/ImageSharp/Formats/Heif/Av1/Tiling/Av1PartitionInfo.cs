@@ -87,7 +87,7 @@ internal class Av1PartitionInfo
 
     public Av1ChromaFromLumaContext? ChromaFromLumaContext { get; internal set; }
 
-    public void ComputeBoundaryOffsets(Configuration configuration, ObuSequenceHeader sequenceHeader, ObuFrameHeader frameHeader, Av1TileInfo tileInfo)
+    public void ComputeBoundaryOffsets(Configuration configuration, ObuSequenceHeader sequenceHeader, ObuFrameHeader frameHeader, Av1TileInfo tileInfo, Av1ChromaFromLumaContext? chromaFromLumaContext = null)
     {
         Av1BlockSize blockSize = this.ModeInfo.BlockSize;
         int bw4 = blockSize.Get4x4WideCount();
@@ -98,6 +98,17 @@ internal class Av1PartitionInfo
         this.AvailableLeft = this.ColumnIndex > tileInfo.ModeInfoColumnStart;
         this.AvailableAboveForChroma = this.AvailableAbove;
         this.AvailableLeftForChroma = this.AvailableLeft;
+        int blockSize8x8Wide = Av1BlockSize.Block8x8.Get4x4WideCount();
+        int blockSize8x8High = Av1BlockSize.Block8x8.Get4x4HighCount();
+        if (subX == 1 && bw4 < blockSize8x8Wide)
+        {
+            this.AvailableLeftForChroma = (this.ColumnIndex - 1) > tileInfo.ModeInfoColumnStart;
+        }
+
+        if (subY == 1 && bh4 < blockSize8x8High)
+        {
+            this.AvailableAboveForChroma = (this.RowIndex - 1) > tileInfo.ModeInfoRowStart;
+        }
 
         int shift = Av1Constants.ModeInfoSizeLog2 + 3;
         this.ModeBlockToLeftEdge = -this.ColumnIndex << shift;
@@ -119,7 +130,7 @@ internal class Av1PartitionInfo
         this.WidthInPixels[2] = Math.Max(1, bw4 >> subX) * modeInfoSize;
         this.HeightInPixels[2] = Math.Max(1, bh4 >> subY) * modeInfoSize;
 
-        this.ChromaFromLumaContext = new Av1ChromaFromLumaContext(configuration, sequenceHeader.ColorConfig);
+        this.ChromaFromLumaContext = chromaFromLumaContext;
     }
 
     public int GetMaxBlockWide(Av1BlockSize blockSize, bool subX)

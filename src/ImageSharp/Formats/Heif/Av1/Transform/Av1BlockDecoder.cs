@@ -5,12 +5,15 @@ using System.Runtime.CompilerServices;
 using SixLabors.ImageSharp.Formats.Heif.Av1.OpenBitstreamUnit;
 using SixLabors.ImageSharp.Formats.Heif.Av1.Pipeline.Quantification;
 using SixLabors.ImageSharp.Formats.Heif.Av1.Prediction;
+using SixLabors.ImageSharp.Formats.Heif.Av1.Prediction.ChromaFromLuma;
 using SixLabors.ImageSharp.Formats.Heif.Av1.Tiling;
 
 namespace SixLabors.ImageSharp.Formats.Heif.Av1.Transform;
 
 internal class Av1BlockDecoder
 {
+    private readonly Configuration configuration;
+
     private readonly ObuSequenceHeader sequenceHeader;
 
     private readonly ObuFrameHeader frameHeader;
@@ -19,16 +22,22 @@ internal class Av1BlockDecoder
 
     private readonly Av1FrameBuffer<byte> frameBuffer;
 
+    private readonly Av1InverseQuantizer inverseQuantizer;
+
     private readonly bool isLoopFilterEnabled;
 
     private readonly int[] currentCoefficientIndex;
 
-    public Av1BlockDecoder(ObuSequenceHeader sequenceHeader, ObuFrameHeader frameHeader, Av1FrameInfo frameInfo, Av1FrameBuffer<byte> frameBuffer)
+    private readonly Av1ChromaFromLumaContext chromaFromLumaContext;
+
+    public Av1BlockDecoder(Configuration configuration, ObuSequenceHeader sequenceHeader, ObuFrameHeader frameHeader, Av1FrameInfo frameInfo, Av1FrameBuffer<byte> frameBuffer, Av1InverseQuantizer inverseQuantizer)
     {
+        this.configuration = configuration;
         this.sequenceHeader = sequenceHeader;
         this.frameHeader = frameHeader;
         this.frameInfo = frameInfo;
         this.frameBuffer = frameBuffer;
+        this.inverseQuantizer = inverseQuantizer;
         int ySize = (1 << this.sequenceHeader.SuperblockSizeLog2) * (1 << this.sequenceHeader.SuperblockSizeLog2);
         int inverseQuantizationSize = ySize +
             (this.sequenceHeader.ColorConfig.SubSamplingX ? ySize >> 2 : ySize) +
@@ -36,6 +45,7 @@ internal class Av1BlockDecoder
         this.CurrentInverseQuantizationCoefficients = new int[inverseQuantizationSize];
         this.isLoopFilterEnabled = false;
         this.currentCoefficientIndex = new int[3];
+        this.chromaFromLumaContext = new Av1ChromaFromLumaContext(configuration, sequenceHeader.ColorConfig);
     }
 
     public int[] CurrentInverseQuantizationCoefficients { get; private set; }
@@ -57,7 +67,12 @@ internal class Av1BlockDecoder
         Av1TransformSize transformSize;
         int transformUnitCount;
         bool hasChroma = Av1TileReader.HasChroma(this.sequenceHeader, modeInfoPosition, blockSize);
-        Av1PartitionInfo partitionInfo = new(modeInfo, superblockInfo, hasChroma, Av1PartitionType.None);
+        Av1PartitionInfo partitionInfo = new(modeInfo, superblockInfo, hasChroma, modeInfo.PartitionType)
+        {
+            ColumnIndex = modeInfoPosition.X,
+            RowIndex = modeInfoPosition.Y,
+        };
+        partitionInfo.ComputeBoundaryOffsets(this.configuration, this.sequenceHeader, this.frameHeader, tileInfo, this.chromaFromLumaContext);
 
         int maxBlocksWide = partitionInfo.GetMaxBlockWide(blockSize, false);
         int maxBlocksHigh = partitionInfo.GetMaxBlockHigh(blockSize, false);
@@ -71,7 +86,7 @@ internal class Av1BlockDecoder
         bool is16BitsPipeline = false;
         int loopFilterStride = this.frameHeader.ModeInfoStride;
         Av1PredictionDecoder predictionDecoder = new(this.sequenceHeader, this.frameHeader, false);
-        Av1InverseQuantizer inverseQuantizer = new(this.sequenceHeader, this.frameHeader);
+        Av1InverseQuantizer inverseQuantizer = this.inverseQuantizer;
 
         for (int plane = 0; plane < colorConfig.PlaneCount; plane++)
         {
@@ -171,10 +186,11 @@ internal class Av1BlockDecoder
 
                         if (this.frameBuffer.BitDepth == Av1BitDepth.EightBit && !is16BitsPipeline)
                         {
-                            // SVT: svt_aom_inv_transform_recon8bit
+                            // DeriveBlockPointer returns the row BEFORE the block. Advance past it so the
+                            // inverse-transform add lands on the same rows the predictor wrote to.
                             Av1InverseTransformer.Reconstruct8Bit(
                                 quantizationCoefficients,
-                                transformBlockReconstructionBuffer,
+                                transformBlockReconstructionBuffer[reconstructionStride..],
                                 reconstructionStride,
                                 transformSize,
                                 transformType,

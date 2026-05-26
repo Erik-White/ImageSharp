@@ -38,7 +38,7 @@ internal class Av1PredictionDecoder
         int blockModeInfoColumnOffset,
         int blockModeInfoRowOffset)
     {
-        int bytesPerPixel = (bitDepth == Av1BitDepth.EightBit && !this.is16BitPipeline) ? 2 : 1;
+        int bytesPerPixel = (bitDepth == Av1BitDepth.EightBit && !this.is16BitPipeline) ? 1 : 2;
         int stride = pixelStride * bytesPerPixel;
 
         // Deviation from SVT: Buffer starts at PREVIOUS row.
@@ -145,7 +145,7 @@ internal class Av1PredictionDecoder
     {
         Av1BlockModeInfo modeInfo = partitionInfo.ModeInfo;
         Av1BlockSize blockSize = modeInfo.BlockSize;
-        DebugGuard.MustBeGreaterThan((int)blockSize, (int)Av1BlockSize.AllSizes, nameof(blockSize));
+        DebugGuard.MustBeLessThan((int)blockSize, (int)Av1BlockSize.AllSizes, nameof(blockSize));
         if (frameHeader.LosslessArray[modeInfo.SegmentId])
         {
             // In lossless, CfL is available when the partition size is equal to the
@@ -745,24 +745,26 @@ internal class Av1PredictionDecoder
 
         if (needAboveLeft)
         {
+            byte aboveLeftValue;
             if (topPixelCount > 0 && leftPixelCount > 0)
             {
-                aboveRow[-1] = aboveNeighbor[-1];
+                aboveLeftValue = Unsafe.Subtract(ref aboveNeighbor[0], 1);
             }
             else if (topPixelCount > 0)
             {
-                aboveRow[-1] = aboveNeighbor[0];
+                aboveLeftValue = aboveNeighbor[0];
             }
             else if (leftPixelCount > 0)
             {
-                aboveRow[-1] = leftNeighbor[0];
+                aboveLeftValue = leftNeighbor[0];
             }
             else
             {
-                aboveRow[-1] = 128;
+                aboveLeftValue = 128;
             }
 
-            leftColumn[-1] = aboveRow[-1];
+            Unsafe.Subtract(ref aboveRow[0], 1) = aboveLeftValue;
+            Unsafe.Subtract(ref leftColumn[0], 1) = aboveLeftValue;
         }
 
         if (useFilterIntra)
@@ -858,13 +860,14 @@ internal class Av1PredictionDecoder
         input[count + 2] = buffer[count - 1];
 
         // interpolate half-sample edge positions
-        buffer[-2] = input[0];
+        ref byte bufferRef = ref buffer[0];
+        Unsafe.Subtract(ref bufferRef, 2) = input[0];
         for (int i = 0; i < count; i++)
         {
             int s = -input[i] + (9 * input[i + 1]) + (9 * input[i + 2]) - input[i + 3];
             s = Av1Math.Clamp((s + 8) >> 4, 0, 255);
-            buffer[(2 * i) - 1] = (byte)s;
-            buffer[2 * i] = input[i + 2];
+            Unsafe.Add(ref bufferRef, (2 * i) - 1) = (byte)s;
+            Unsafe.Add(ref bufferRef, 2 * i) = input[i + 2];
         }
     }
 

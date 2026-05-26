@@ -18,7 +18,7 @@ internal class Av1FrameDecoder : IAv1FrameDecoder
     private readonly Av1DeQuantizationContext deQuants;
     private readonly Av1BlockDecoder blockDecoder;
 
-    public Av1FrameDecoder(ObuSequenceHeader sequenceHeader, ObuFrameHeader frameHeader, Av1FrameInfo frameInfo, Av1FrameBuffer<byte> frameBuffer)
+    public Av1FrameDecoder(Configuration configuration, ObuSequenceHeader sequenceHeader, ObuFrameHeader frameHeader, Av1FrameInfo frameInfo, Av1FrameBuffer<byte> frameBuffer)
     {
         this.sequenceHeader = sequenceHeader;
         this.frameHeader = frameHeader;
@@ -26,7 +26,7 @@ internal class Av1FrameDecoder : IAv1FrameDecoder
         this.frameBuffer = frameBuffer;
         this.inverseQuantizer = new(sequenceHeader, frameHeader);
         this.deQuants = new(sequenceHeader, frameHeader);
-        this.blockDecoder = new(this.sequenceHeader, this.frameHeader, this.frameInfo, this.frameBuffer);
+        this.blockDecoder = new(configuration, this.sequenceHeader, this.frameHeader, this.frameInfo, this.frameBuffer, this.inverseQuantizer);
     }
 
     public void DecodeFrame()
@@ -120,14 +120,12 @@ internal class Av1FrameDecoder : IAv1FrameDecoder
     /// </summary>
     private void DecodePartition(Point modeInfoPosition, Av1SuperblockInfo superblockInfo, Av1TileInfo tileInfo)
     {
-        Av1BlockModeInfo modeInfo = superblockInfo.GetModeInfo(modeInfoPosition);
-
         for (int i = 0; i < superblockInfo.BlockCount; i++)
         {
+            Av1BlockModeInfo modeInfo = this.frameInfo.GetModeInfoByIndex(superblockInfo.FirstModeInfoIndex + i);
             Point subPosition = modeInfo.PositionInSuperblock;
             Av1BlockSize subSize = modeInfo.BlockSize;
-            Point globalPosition = new(modeInfoPosition.X, modeInfoPosition.Y);
-            globalPosition.Offset(subPosition);
+            Point globalPosition = new(modeInfoPosition.X + subPosition.X, modeInfoPosition.Y + subPosition.Y);
             this.blockDecoder.DecodeBlock(modeInfo, globalPosition, subSize, superblockInfo, tileInfo);
         }
     }

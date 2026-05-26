@@ -33,14 +33,12 @@ internal class Av1TileReader : IAv1TileReader
     private readonly int[] firstTransformOffset = new int[2];
     private readonly int[] coefficientIndex = [];
     private readonly Configuration configuration;
-    private readonly IAv1FrameDecoder frameDecoder;
 
-    public Av1TileReader(Configuration configuration, ObuSequenceHeader sequenceHeader, ObuFrameHeader frameHeader, IAv1FrameDecoder frameDecoder)
+    public Av1TileReader(Configuration configuration, ObuSequenceHeader sequenceHeader, ObuFrameHeader frameHeader)
     {
         this.FrameHeader = frameHeader;
         this.configuration = configuration;
         this.SequenceHeader = sequenceHeader;
-        this.frameDecoder = frameDecoder;
 
         // init_main_frame_ctxt
         this.FrameInfo = new(this.SequenceHeader);
@@ -87,6 +85,7 @@ internal class Av1TileReader : IAv1TileReader
         int modeInfoRowEnd = this.FrameHeader.TilesInfo.TileRowStartModeInfo[tileRowIndex + 1];
         this.aboveNeighborContext.Clear(this.SequenceHeader, modeInfoColumnStart, modeInfoColumnEnd);
         this.ClearLoopFilterDelta();
+        this.currentQuantizerIndex = this.FrameHeader.QuantizationParameters.BaseQIndex;
         int planesCount = this.SequenceHeader.ColorConfig.PlaneCount;
 
         // Default initialization of Wiener and SGR Filter.
@@ -127,9 +126,6 @@ internal class Av1TileReader : IAv1TileReader
                 this.coefficientIndex[2] = 0;
                 this.ReadLoopRestoration(modeInfoPosition, superBlockSize);
                 this.ParsePartition(ref reader, modeInfoPosition, superBlockSize, superblockInfo, tileInfo);
-
-                // decoding of the superblock
-                this.frameDecoder.DecodeSuperblock(modeInfoPosition, superblockInfo, tileInfo);
             }
         }
     }
@@ -302,6 +298,11 @@ internal class Av1TileReader : IAv1TileReader
         Av1PartitionInfo partitionInfo = new(blockModeInfo, superblockInfo, hasChroma, partitionType);
         partitionInfo.ColumnIndex = columnIndex;
         partitionInfo.RowIndex = rowIndex;
+        if (superblockInfo.BlockCount == 0)
+        {
+            superblockInfo.FirstModeInfoIndex = this.FrameInfo.NextModeInfoIndex;
+        }
+
         superblockInfo.BlockCount++;
         partitionInfo.ComputeBoundaryOffsets(this.configuration, this.SequenceHeader, this.FrameHeader, tileInfo);
         if (hasChroma)
@@ -317,24 +318,27 @@ internal class Av1TileReader : IAv1TileReader
             }
         }
 
+        Point superblockOrigin = superblockInfo.Position * this.SequenceHeader.SuperblockModeInfoSize;
+        int columnInSuperblock = columnIndex - superblockOrigin.X;
+        int rowInSuperblock = rowIndex - superblockOrigin.Y;
         if (partitionInfo.AvailableAbove)
         {
-            partitionInfo.AboveModeInfo = superblockInfo.GetModeInfo(new Point(rowIndex - 1, columnIndex));
+            partitionInfo.AboveModeInfo = superblockInfo.GetModeInfo(new Point(columnInSuperblock, rowInSuperblock - 1));
         }
 
         if (partitionInfo.AvailableLeft)
         {
-            partitionInfo.LeftModeInfo = superblockInfo.GetModeInfo(new Point(rowIndex, columnIndex - 1));
+            partitionInfo.LeftModeInfo = superblockInfo.GetModeInfo(new Point(columnInSuperblock - 1, rowInSuperblock));
         }
 
         if (partitionInfo.AvailableAboveForChroma)
         {
-            partitionInfo.AboveModeInfoForChroma = superblockInfo.GetModeInfo(new Point(rowIndex & ~subY, columnIndex | subX));
+            partitionInfo.AboveModeInfoForChroma = superblockInfo.GetModeInfo(new Point(rowInSuperblock & ~subY, columnInSuperblock | subX));
         }
 
         if (partitionInfo.AvailableLeftForChroma)
         {
-            partitionInfo.LeftModeInfoForChroma = superblockInfo.GetModeInfo(new Point(rowIndex | subY, columnIndex & ~subX));
+            partitionInfo.LeftModeInfoForChroma = superblockInfo.GetModeInfo(new Point(rowInSuperblock | subY, columnInSuperblock & ~subX));
         }
 
         this.ReadModeInfo(ref reader, partitionInfo);
@@ -1256,6 +1260,15 @@ internal class Av1TileReader : IAv1TileReader
         if (!this.FrameHeader.DeltaQParameters.IsPresent ||
             (partitionInfo.ModeInfo.BlockSize == superBlockSize && partitionInfo.ModeInfo.Skip))
         {
+            return;
+        }
+
+        // libaom decodemv.c read_delta_qindex: only the SB top-left block reads the delta.
+        int superblockMaskInModeInfoUnits = (this.SequenceHeader.Use128x128Superblock ? 32 : 16) - 1;
+        if ((partitionInfo.ColumnIndex & superblockMaskInModeInfoUnits) != 0 ||
+            (partitionInfo.RowIndex & superblockMaskInModeInfoUnits) != 0)
+        {
+            partitionInfo.SuperblockInfo.SuperblockDeltaQ = this.currentQuantizerIndex;
             return;
         }
 

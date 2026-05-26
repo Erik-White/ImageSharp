@@ -39,9 +39,8 @@ internal class Av1Decoder : IAv1TileReader
         Guard.NotNull(this.SequenceHeader, nameof(this.SequenceHeader));
         Guard.NotNull(this.FrameHeader, nameof(this.FrameHeader));
 
-        this.FrameInfo = this.tileReader.FrameInfo;
-        this.FrameBuffer = new(this.configuration, this.SequenceHeader, this.SequenceHeader.ColorConfig.GetColorFormat(), false);
-        this.frameDecoder = new(this.SequenceHeader, this.FrameHeader, this.FrameInfo, this.FrameBuffer);
+        Guard.NotNull(this.frameDecoder, nameof(this.frameDecoder));
+        Guard.NotNull(this.FrameBuffer, nameof(this.FrameBuffer));
         this.frameDecoder.DecodeFrame();
 
         Image<TPixel> resultImage = new(this.FrameHeader.FrameSize.FrameWidth, this.FrameHeader.FrameSize.FrameHeight);
@@ -56,13 +55,12 @@ internal class Av1Decoder : IAv1TileReader
         {
             this.SequenceHeader = this.obuReader.SequenceHeader;
             this.FrameHeader = this.obuReader.FrameHeader;
-            Guard.NotNull(this.tileReader, nameof(this.tileReader));
             Guard.NotNull(this.SequenceHeader, nameof(this.SequenceHeader));
             Guard.NotNull(this.FrameHeader, nameof(this.FrameHeader));
-            this.FrameInfo = new(this.SequenceHeader);
             this.FrameBuffer = new(this.configuration, this.SequenceHeader, this.SequenceHeader.ColorConfig.GetColorFormat(), false);
-            this.frameDecoder = new(this.SequenceHeader, this.FrameHeader, this.FrameInfo, this.FrameBuffer);
-            this.tileReader = new Av1TileReader(this.configuration, this.SequenceHeader, this.FrameHeader, this.frameDecoder);
+            this.tileReader = new Av1TileReader(this.configuration, this.SequenceHeader, this.FrameHeader);
+            this.FrameInfo = this.tileReader.FrameInfo;
+            this.frameDecoder = new(this.configuration, this.SequenceHeader, this.FrameHeader, this.FrameInfo, this.FrameBuffer);
         }
 
         this.tileReader.ReadTile(tileData, tileNum);
