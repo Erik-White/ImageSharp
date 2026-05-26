@@ -160,12 +160,10 @@ public class Av1LoopFilterTests
     [Fact]
     public void Context_Initialize_SetsThresholdsForAllLevels()
     {
-        Av1LoopFilterContext context = new();
         ObuLoopFilterParameters parameters = new();
         parameters.FilterLevel[0] = 32;
         parameters.SharpnessLevel = 0;
-
-        context.Initialize(parameters);
+        Av1LoopFilterContext context = new(parameters);
 
         // Sharpness 0: blockInsideLimit = lvl >> 0 = lvl, clamped to >= 1.
         // mblim = 2*(lvl+2) + lim. hev_thr = lvl >> 4.
@@ -185,17 +183,15 @@ public class Av1LoopFilterTests
     {
         // Higher sharpness should tighten the inner threshold (at high levels) so the filter
         // smooths fewer pixels. Compare lvl=63 across two sharpness values.
-        Av1LoopFilterContext relaxed = new();
         ObuLoopFilterParameters relaxedParameters = new();
         relaxedParameters.FilterLevel[0] = 63;
         relaxedParameters.SharpnessLevel = 0;
-        relaxed.Initialize(relaxedParameters);
+        Av1LoopFilterContext relaxed = new(relaxedParameters);
 
-        Av1LoopFilterContext sharp = new();
         ObuLoopFilterParameters sharpParameters = new();
         sharpParameters.FilterLevel[0] = 63;
         sharpParameters.SharpnessLevel = 7;
-        sharp.Initialize(sharpParameters);
+        Av1LoopFilterContext sharp = new(sharpParameters);
 
         byte relaxedLimit = relaxed.GetThreshold(63).Limit;
         byte sharpLimit = sharp.GetThreshold(63).Limit;

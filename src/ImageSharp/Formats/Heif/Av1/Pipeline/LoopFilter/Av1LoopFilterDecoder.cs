@@ -11,22 +11,19 @@ namespace SixLabors.ImageSharp.Formats.Heif.Av1.Pipeline.LoopFilter;
 /// AV1 in-loop deblocking filter. Implements section 7.14 of the AV1 specification:
 /// vertical boundaries for all planes are filtered first, then horizontal boundaries.
 /// </summary>
-internal class Av1LoopFilterDecoder
+internal sealed class Av1LoopFilterDecoder
 {
     private const int MiSize = 4;
     private const int MiSizeLog2 = Av1Constants.ModeInfoSizeLog2;
 
-    private const int VertEdge = 0;
-    private const int HorzEdge = 1;
-
     // Maps tx_size dim_log2 (0..4 for 4x4 .. 64x64) to outer-edge filter length for luma.
-    private static readonly int[] TransformDimensionToFilterLength = [4, 8, 14, 14, 14];
+    private static readonly byte[] LumaFilterLengthByDimensionLog2 = [4, 8, 14, 14, 14];
 
     private readonly ObuSequenceHeader sequenceHeader;
     private readonly ObuFrameHeader frameHeader;
     private readonly Av1FrameInfo frameInfo;
     private readonly Av1FrameBuffer<byte> frameBuffer;
-    private readonly Av1LoopFilterContext loopFilterContext;
+    private readonly Av1LoopFilterContext context;
     private readonly int superblockMiSize;
     private readonly int superblockMiSizeLog2;
 
@@ -36,7 +33,7 @@ internal class Av1LoopFilterDecoder
         this.frameHeader = frameHeader;
         this.frameInfo = frameInfo;
         this.frameBuffer = frameBuffer;
-        this.loopFilterContext = new();
+        this.context = new Av1LoopFilterContext(frameHeader.LoopFilterParameters);
         this.superblockMiSizeLog2 = sequenceHeader.SuperblockSizeLog2 - MiSizeLog2;
         this.superblockMiSize = 1 << this.superblockMiSizeLog2;
     }
@@ -50,14 +47,22 @@ internal class Av1LoopFilterDecoder
             return;
         }
 
-        this.loopFilterContext.Initialize(lfParams);
-
         int superblockSizeLog2 = this.sequenceHeader.SuperblockSizeLog2;
         int frameWidthInSuperblocks = Av1Math.DivideLog2Ceiling(this.frameHeader.FrameSize.FrameWidth, superblockSizeLog2);
         int frameHeightInSuperblocks = Av1Math.DivideLog2Ceiling(this.frameHeader.FrameSize.FrameHeight, superblockSizeLog2);
-
         int planeCount = this.sequenceHeader.ColorConfig.IsMonochrome ? 1 : Av1Constants.MaxPlanes;
 
+        PlaneState[] verticalStates = new PlaneState[planeCount];
+        PlaneState[] horizontalStates = new PlaneState[planeCount];
+        for (int plane = 0; plane < planeCount; plane++)
+        {
+            verticalStates[plane] = this.CreatePlaneState(plane, Av1EdgeDirection.Vertical);
+            horizontalStates[plane] = this.CreatePlaneState(plane, Av1EdgeDirection.Horizontal);
+        }
+
+        // Within each superblock all planes are filtered vertically, then all planes are filtered
+        // horizontally. Wide filters touch pixels in the previous superblock, so this per-SB
+        // ordering — rather than per-plane-then-per-SB — is observable at superblock boundaries.
         for (int sbY = 0; sbY < frameHeightInSuperblocks; sbY++)
         {
             for (int sbX = 0; sbX < frameWidthInSuperblocks; sbX++)
@@ -67,138 +72,117 @@ internal class Av1LoopFilterDecoder
 
                 for (int plane = 0; plane < planeCount; plane++)
                 {
-                    this.FilterSuperblockPlaneVertical(plane, miRow, miCol);
+                    this.FilterSuperblockPlane(verticalStates[plane], miRow, miCol);
                 }
 
                 for (int plane = 0; plane < planeCount; plane++)
                 {
-                    this.FilterSuperblockPlaneHorizontal(plane, miRow, miCol);
+                    this.FilterSuperblockPlane(horizontalStates[plane], miRow, miCol);
                 }
             }
         }
     }
 
-    private void FilterSuperblockPlaneVertical(int plane, int miRow, int miCol)
+    private PlaneState CreatePlaneState(int plane, Av1EdgeDirection direction)
     {
-        int subX = (plane > 0 && this.sequenceHeader.ColorConfig.SubSamplingX) ? 1 : 0;
-        int subY = (plane > 0 && this.sequenceHeader.ColorConfig.SubSamplingY) ? 1 : 0;
+        bool isChroma = plane > 0;
+        int subX = (isChroma && this.sequenceHeader.ColorConfig.SubSamplingX) ? 1 : 0;
+        int subY = (isChroma && this.sequenceHeader.ColorConfig.SubSamplingY) ? 1 : 0;
+        this.GetPlaneBuffer((Av1Plane)plane, subX, subY, out int stride);
 
-        int planeWidth = (this.frameHeader.FrameSize.FrameWidth + ((1 << subX) - 1)) >> subX;
-        int planeHeight = (this.frameHeader.FrameSize.FrameHeight + ((1 << subY) - 1)) >> subY;
-
-        int planeMiRows = (this.frameHeader.ModeInfoRowCount + ((1 << subY) - 1)) >> subY;
-        int planeMiCols = (this.frameHeader.ModeInfoColumnCount + ((1 << subX) - 1)) >> subX;
-        int yRange = Math.Min(planeMiRows - (miRow >> subY), this.superblockMiSize >> subY);
-        int xRange = Math.Min(planeMiCols - (miCol >> subX), this.superblockMiSize >> subX);
-
-        Span<byte> dst = this.GetPlaneBuffer((Av1Plane)plane, subX, subY, out int stride);
-
-        for (int y = 0; y < yRange; y++)
+        return new PlaneState
         {
-            int rowBase = ((miRow * MiSize) >> subY) + (y * MiSize);
-            for (int x = 0; x < xRange;)
+            Plane = plane,
+            Direction = direction,
+            SubX = subX,
+            SubY = subY,
+            Width = (this.frameHeader.FrameSize.FrameWidth + ((1 << subX) - 1)) >> subX,
+            Height = (this.frameHeader.FrameSize.FrameHeight + ((1 << subY) - 1)) >> subY,
+            ModeInfoRows = (this.frameHeader.ModeInfoRowCount + ((1 << subY) - 1)) >> subY,
+            ModeInfoCols = (this.frameHeader.ModeInfoColumnCount + ((1 << subX) - 1)) >> subX,
+            Stride = stride,
+            FilterLevel = this.GetFilterLevel(direction, plane),
+        };
+    }
+
+    // DeriveBlockPointer returns a span offset one row before the requested location; passing
+    // y=1 cancels that out so the returned span starts at the plane origin.
+    private Span<byte> GetPlaneBuffer(Av1Plane plane, int subX, int subY, out int stride)
+        => this.frameBuffer.DeriveBlockPointer(plane, new Point(0, 1), subX, subY, out stride);
+
+    private Span<byte> GetPlaneBuffer(PlaneState plane)
+        => this.GetPlaneBuffer((Av1Plane)plane.Plane, plane.SubX, plane.SubY, out _);
+
+    private void FilterSuperblockPlane(PlaneState plane, int miRow, int miCol)
+    {
+        int yRange = Math.Min(plane.ModeInfoRows - (miRow >> plane.SubY), this.superblockMiSize >> plane.SubY);
+        int xRange = Math.Min(plane.ModeInfoCols - (miCol >> plane.SubX), this.superblockMiSize >> plane.SubX);
+        int planeStartX = (miCol * MiSize) >> plane.SubX;
+        int planeStartY = (miRow * MiSize) >> plane.SubY;
+        Span<byte> buffer = this.GetPlaneBuffer(plane);
+
+        if (plane.Direction == Av1EdgeDirection.Vertical)
+        {
+            for (int y = 0; y < yRange; y++)
             {
-                int currX = ((miCol * MiSize) >> subX) + (x * MiSize);
-                int currY = rowBase;
-
-                Av1TransformSize tx = this.SetLpfParameters(out Av1DeblockingParameters parameters, VertEdge, currX, currY, plane, subX, subY, planeWidth, planeHeight);
-                if (tx == Av1TransformSize.Invalid)
+                int currY = planeStartY + (y * MiSize);
+                for (int x = 0; x < xRange;)
                 {
-                    parameters.FilterLength = 0;
-                    tx = Av1TransformSize.Size4x4;
+                    int currX = planeStartX + (x * MiSize);
+                    Av1TransformSize tx = this.FilterEdge(plane, buffer, currX, currY);
+                    x += tx.Get4x4WideCount();
                 }
-
-                if (parameters.FilterLength != 0)
-                {
-                    int pixelOffset = ((rowBase + 1) * stride) + currX;
-                    ApplyVerticalFilter(dst, pixelOffset, stride, parameters);
-                }
-
-                int advanceUnits = tx.Get4x4WideCount();
-                x += advanceUnits;
             }
         }
-    }
-
-    private void FilterSuperblockPlaneHorizontal(int plane, int miRow, int miCol)
-    {
-        int subX = (plane > 0 && this.sequenceHeader.ColorConfig.SubSamplingX) ? 1 : 0;
-        int subY = (plane > 0 && this.sequenceHeader.ColorConfig.SubSamplingY) ? 1 : 0;
-
-        int planeWidth = (this.frameHeader.FrameSize.FrameWidth + ((1 << subX) - 1)) >> subX;
-        int planeHeight = (this.frameHeader.FrameSize.FrameHeight + ((1 << subY) - 1)) >> subY;
-
-        int planeMiRows = (this.frameHeader.ModeInfoRowCount + ((1 << subY) - 1)) >> subY;
-        int planeMiCols = (this.frameHeader.ModeInfoColumnCount + ((1 << subX) - 1)) >> subX;
-        int yRange = Math.Min(planeMiRows - (miRow >> subY), this.superblockMiSize >> subY);
-        int xRange = Math.Min(planeMiCols - (miCol >> subX), this.superblockMiSize >> subX);
-
-        Span<byte> dst = this.GetPlaneBuffer((Av1Plane)plane, subX, subY, out int stride);
-
-        for (int x = 0; x < xRange; x++)
+        else
         {
-            int colBase = ((miCol * MiSize) >> subX) + (x * MiSize);
-            for (int y = 0; y < yRange;)
+            for (int x = 0; x < xRange; x++)
             {
-                int currX = colBase;
-                int currY = ((miRow * MiSize) >> subY) + (y * MiSize);
-
-                Av1TransformSize tx = this.SetLpfParameters(out Av1DeblockingParameters parameters, HorzEdge, currX, currY, plane, subX, subY, planeWidth, planeHeight);
-                if (tx == Av1TransformSize.Invalid)
+                int currX = planeStartX + (x * MiSize);
+                for (int y = 0; y < yRange;)
                 {
-                    parameters.FilterLength = 0;
-                    tx = Av1TransformSize.Size4x4;
+                    int currY = planeStartY + (y * MiSize);
+                    Av1TransformSize tx = this.FilterEdge(plane, buffer, currX, currY);
+                    y += tx.Get4x4HighCount();
                 }
-
-                if (parameters.FilterLength != 0)
-                {
-                    int pixelOffset = ((currY + 1) * stride) + colBase;
-                    ApplyHorizontalFilter(dst, pixelOffset, stride, parameters);
-                }
-
-                int advanceUnits = tx.Get4x4HighCount();
-                y += advanceUnits;
             }
         }
     }
 
-    private static void ApplyVerticalFilter(Span<byte> dst, int offset, int stride, in Av1DeblockingParameters parameters)
+    private Av1TransformSize FilterEdge(PlaneState plane, Span<byte> buffer, int currX, int currY)
     {
-        Av1LoopFilterThreshold lfthr = parameters.Threshold!;
-        switch (parameters.FilterLength)
+        (Av1EdgeDeblockingParameters parameters, Av1TransformSize tx) = this.GetEdgeParameters(plane, currX, currY);
+        if (parameters.FilterLength != 0)
         {
-            case 4:
-                Av1LoopFilterPrimitives.LpfVertical4(dst, offset, stride, lfthr.MbLimit, lfthr.Limit, lfthr.HevThreshold);
-                break;
-            case 6:
-                Av1LoopFilterPrimitives.LpfVertical6(dst, offset, stride, lfthr.MbLimit, lfthr.Limit, lfthr.HevThreshold);
-                break;
-            case 8:
-                Av1LoopFilterPrimitives.LpfVertical8(dst, offset, stride, lfthr.MbLimit, lfthr.Limit, lfthr.HevThreshold);
-                break;
-            case 14:
-                Av1LoopFilterPrimitives.LpfVertical14(dst, offset, stride, lfthr.MbLimit, lfthr.Limit, lfthr.HevThreshold);
-                break;
+            int offset = (currY * plane.Stride) + currX;
+            ApplyFilter(buffer, offset, plane.Stride, plane.Direction, parameters);
         }
+
+        return tx;
     }
 
-    private static void ApplyHorizontalFilter(Span<byte> dst, int offset, int stride, in Av1DeblockingParameters parameters)
+    private static void ApplyFilter(Span<byte> buffer, int offset, int stride, Av1EdgeDirection direction, Av1EdgeDeblockingParameters parameters)
     {
-        Av1LoopFilterThreshold lfthr = parameters.Threshold!;
-        switch (parameters.FilterLength)
+        Av1LoopFilterThreshold t = parameters.Threshold;
+        if (direction == Av1EdgeDirection.Vertical)
         {
-            case 4:
-                Av1LoopFilterPrimitives.LpfHorizontal4(dst, offset, stride, lfthr.MbLimit, lfthr.Limit, lfthr.HevThreshold);
-                break;
-            case 6:
-                Av1LoopFilterPrimitives.LpfHorizontal6(dst, offset, stride, lfthr.MbLimit, lfthr.Limit, lfthr.HevThreshold);
-                break;
-            case 8:
-                Av1LoopFilterPrimitives.LpfHorizontal8(dst, offset, stride, lfthr.MbLimit, lfthr.Limit, lfthr.HevThreshold);
-                break;
-            case 14:
-                Av1LoopFilterPrimitives.LpfHorizontal14(dst, offset, stride, lfthr.MbLimit, lfthr.Limit, lfthr.HevThreshold);
-                break;
+            switch (parameters.FilterLength)
+            {
+                case 4: Av1LoopFilterPrimitives.LpfVertical4(buffer, offset, stride, t.MbLimit, t.Limit, t.HevThreshold); break;
+                case 6: Av1LoopFilterPrimitives.LpfVertical6(buffer, offset, stride, t.MbLimit, t.Limit, t.HevThreshold); break;
+                case 8: Av1LoopFilterPrimitives.LpfVertical8(buffer, offset, stride, t.MbLimit, t.Limit, t.HevThreshold); break;
+                case 14: Av1LoopFilterPrimitives.LpfVertical14(buffer, offset, stride, t.MbLimit, t.Limit, t.HevThreshold); break;
+            }
+        }
+        else
+        {
+            switch (parameters.FilterLength)
+            {
+                case 4: Av1LoopFilterPrimitives.LpfHorizontal4(buffer, offset, stride, t.MbLimit, t.Limit, t.HevThreshold); break;
+                case 6: Av1LoopFilterPrimitives.LpfHorizontal6(buffer, offset, stride, t.MbLimit, t.Limit, t.HevThreshold); break;
+                case 8: Av1LoopFilterPrimitives.LpfHorizontal8(buffer, offset, stride, t.MbLimit, t.Limit, t.HevThreshold); break;
+                case 14: Av1LoopFilterPrimitives.LpfHorizontal14(buffer, offset, stride, t.MbLimit, t.Limit, t.HevThreshold); break;
+            }
         }
     }
 
@@ -207,82 +191,63 @@ internal class Av1LoopFilterDecoder
     /// Implements section 7.14.2 (edge loop filter process) and 7.14.3 (filter size process) of the
     /// AV1 specification.
     /// </summary>
-    private Av1TransformSize SetLpfParameters(out Av1DeblockingParameters parameters, int edgeDir, int x, int y, int plane, int subX, int subY, int planeWidth, int planeHeight)
+    private (Av1EdgeDeblockingParameters Parameters, Av1TransformSize TransformSize) GetEdgeParameters(PlaneState plane, int x, int y)
     {
-        parameters = default;
-
-        if (planeWidth <= x || planeHeight <= y)
+        if (plane.Width <= x || plane.Height <= y)
         {
-            return Av1TransformSize.Size4x4;
+            return (default, Av1TransformSize.Size4x4);
         }
 
         // Sub-8x8 chroma: align to bottom-right of the co-located 8x8 luma block.
-        int miRow = subY | ((y << subY) >> MiSizeLog2);
-        int miCol = subX | ((x << subX) >> MiSizeLog2);
+        int miRow = plane.SubY | ((y << plane.SubY) >> MiSizeLog2);
+        int miCol = plane.SubX | ((x << plane.SubX) >> MiSizeLog2);
 
-        if (!this.TryGetModeInfo(miRow, miCol, out Av1BlockModeInfo? mbmi) || mbmi is null)
+        if (!this.TryGetModeInfo(miRow, miCol, out Av1BlockModeInfo? mbmi))
         {
-            return Av1TransformSize.Invalid;
+            return (default, Av1TransformSize.Size4x4);
         }
 
-        Av1TransformSize ts = this.GetTransformSize(mbmi, miRow, miCol, plane, subX, subY);
+        Av1TransformSize ts = this.GetTransformSize(plane, mbmi, miRow, miCol);
+        bool isVertical = plane.Direction == Av1EdgeDirection.Vertical;
+        int coord = isVertical ? x : y;
+        int dimMask = (isVertical ? ts.GetWidth() : ts.GetHeight()) - 1;
 
-        int coord = (edgeDir == VertEdge) ? x : y;
-        int transformMask = (edgeDir == VertEdge) ? ts.GetWidth() - 1 : ts.GetHeight() - 1;
-        bool tuEdge = (coord & transformMask) == 0;
-
-        if (!tuEdge)
+        // Filtered edges fall on transform-unit boundaries except the leading frame edge.
+        if (coord == 0 || (coord & dimMask) != 0 || plane.FilterLevel == 0)
         {
-            return ts;
+            return (default, ts);
         }
 
-        if (coord == 0)
+        int prevMiRow = isVertical ? miRow : miRow - (1 << plane.SubY);
+        int prevMiCol = isVertical ? miCol - (1 << plane.SubX) : miCol;
+        if (!this.TryGetModeInfo(prevMiRow, prevMiCol, out Av1BlockModeInfo? prevMbmi))
         {
-            return ts;
+            return (default, ts);
         }
 
-        // Previous MI position across the edge.
-        int prevMiRow = (edgeDir == VertEdge) ? miRow : miRow - (1 << subY);
-        int prevMiCol = (edgeDir == VertEdge) ? miCol - (1 << subX) : miCol;
-        if (!this.TryGetModeInfo(prevMiRow, prevMiCol, out Av1BlockModeInfo? prevMbmi) || prevMbmi is null)
-        {
-            return Av1TransformSize.Invalid;
-        }
+        // Spec section 7.14.2 also requires skipping when both sides have skip_txfm set on a
+        // non-PU edge. skip_txfm is only meaningful on inter blocks, so the gating check is
+        // omitted for intra-only HEIF streams.
+        Av1TransformSize prevTs = this.GetTransformSize(plane, prevMbmi, prevMiRow, prevMiCol);
+        int currentLog2 = isVertical ? ts.GetBlockWidthLog2() : ts.GetBlockHeightLog2();
+        int prevLog2 = isVertical ? prevTs.GetBlockWidthLog2() : prevTs.GetBlockHeightLog2();
+        int dim = Math.Min(currentLog2, prevLog2) - 2;
 
-        Av1TransformSize prevTs = this.GetTransformSize(prevMbmi, prevMiRow, prevMiCol, plane, subX, subY);
+        int filterLength = plane.Plane != 0
+            ? (dim == 0 ? 4 : 6)
+            : LumaFilterLengthByDimensionLog2[dim];
 
-        // Spec section 7.14.2 also requires skipping the filter for non-PU edges where both
-        // sides have skip_txfm set. skip_txfm is only meaningful on inter blocks, so for
-        // intra-only HEIF streams that condition is never met and the gating check is omitted.
-        int level = this.GetFilterLevel(edgeDir, plane);
-
-        if (level != 0)
-        {
-            int dim = (edgeDir == VertEdge)
-                ? Math.Min(ts.GetBlockWidthLog2() - 2, prevTs.GetBlockWidthLog2() - 2)
-                : Math.Min(ts.GetBlockHeightLog2() - 2, prevTs.GetBlockHeightLog2() - 2);
-
-            int filterLength = (plane != 0)
-                ? ((dim == 0) ? 4 : 6)
-                : TransformDimensionToFilterLength[dim];
-
-            parameters.FilterLength = (byte)filterLength;
-            parameters.Threshold = this.loopFilterContext.GetThreshold(level);
-        }
-
-        return ts;
+        Av1EdgeDeblockingParameters parameters = new((byte)filterLength, this.context.GetThreshold(plane.FilterLevel));
+        return (parameters, ts);
     }
 
-    private bool TryGetModeInfo(int miRow, int miCol, out Av1BlockModeInfo? mbmi)
+    private bool TryGetModeInfo(int miRow, int miCol, out Av1BlockModeInfo mbmi)
     {
-        mbmi = null;
-        if (miRow < 0 || miCol < 0)
+        if (miRow < 0 || miCol < 0
+            || miRow >= this.frameHeader.ModeInfoRowCount
+            || miCol >= this.frameHeader.ModeInfoColumnCount)
         {
-            return false;
-        }
-
-        if (miRow >= this.frameHeader.ModeInfoRowCount || miCol >= this.frameHeader.ModeInfoColumnCount)
-        {
+            mbmi = null!;
             return false;
         }
 
@@ -291,33 +256,34 @@ internal class Av1LoopFilterDecoder
         int miInSbX = miCol - (sbX << this.superblockMiSizeLog2);
         int miInSbY = miRow - (sbY << this.superblockMiSizeLog2);
 
-        mbmi = this.frameInfo.GetModeInfo(new Point(sbX, sbY), new Point(miInSbX, miInSbY));
-        return mbmi != null;
+        Av1BlockModeInfo? result = this.frameInfo.GetModeInfo(new Point(sbX, sbY), new Point(miInSbX, miInSbY));
+        mbmi = result!;
+        return result is not null;
     }
 
-    private Av1TransformSize GetTransformSize(Av1BlockModeInfo mbmi, int miRow, int miCol, int plane, int subX, int subY)
+    private Av1TransformSize GetTransformSize(PlaneState plane, Av1BlockModeInfo mbmi, int miRow, int miCol)
     {
         if (this.frameHeader.LosslessArray[mbmi.SegmentId])
         {
             return Av1TransformSize.Size4x4;
         }
 
-        if (plane == 0)
+        if (plane.Plane != 0)
         {
-            int sbX = miCol >> this.superblockMiSizeLog2;
-            int sbY = miRow >> this.superblockMiSizeLog2;
-            Av1SuperblockInfo sbInfo = this.frameInfo.GetSuperblock(new Point(sbX, sbY));
-            Span<Av1TransformInfo> txY = sbInfo.GetTransformInfoY();
-            int idx = mbmi.FirstTransformLocation[(int)Av1PlaneType.Y];
-            if (idx < txY.Length && txY[idx] != null)
-            {
-                return txY[idx].Size;
-            }
-
-            return mbmi.BlockSize.GetMaximumTransformSize();
+            return mbmi.BlockSize.GetMaxUvTransformSize(plane.SubX != 0, plane.SubY != 0);
         }
 
-        return mbmi.BlockSize.GetMaxUvTransformSize(subX != 0, subY != 0);
+        int sbX = miCol >> this.superblockMiSizeLog2;
+        int sbY = miRow >> this.superblockMiSizeLog2;
+        Av1SuperblockInfo sbInfo = this.frameInfo.GetSuperblock(new Point(sbX, sbY));
+        Span<Av1TransformInfo> txY = sbInfo.GetTransformInfoY();
+        int idx = mbmi.FirstTransformLocation[(int)Av1PlaneType.Y];
+        if (idx < txY.Length && txY[idx] != null)
+        {
+            return txY[idx].Size;
+        }
+
+        return mbmi.BlockSize.GetMaximumTransformSize();
     }
 
     /// <summary>
@@ -326,41 +292,48 @@ internal class Av1LoopFilterDecoder
     /// segmentation feature path is omitted, and only the INTRA_FRAME ref delta is applied (the
     /// mode delta is always zero because <c>modeType</c> is 0 for intra modes per section 7.14.4).
     /// </summary>
-    private int GetFilterLevel(int edgeDir, int plane)
+    private int GetFilterLevel(Av1EdgeDirection direction, int plane)
     {
         ObuLoopFilterParameters lfParams = this.frameHeader.LoopFilterParameters;
-        int baseLevel;
-        if (plane == 0)
+        int baseLevel = plane switch
         {
-            baseLevel = lfParams.FilterLevel[edgeDir];
-        }
-        else if (plane == 1)
+            0 => lfParams.FilterLevel[(int)direction],
+            1 => lfParams.FilterLevelU,
+            _ => lfParams.FilterLevelV,
+        };
+
+        if (!lfParams.ReferenceDeltaModeEnabled)
         {
-            baseLevel = lfParams.FilterLevelU;
-        }
-        else
-        {
-            baseLevel = lfParams.FilterLevelV;
+            return baseLevel;
         }
 
-        int level = baseLevel;
-
-        if (lfParams.ReferenceDeltaModeEnabled)
-        {
-            int scale = 1 << (level >> 5);
-            level += lfParams.ReferenceDeltas[0] * scale;
-            level = Math.Clamp(level, 0, Av1LoopFilterContext.MaxLoopFilter);
-        }
-
-        return level;
+        int scale = 1 << (baseLevel >> 5);
+        int level = baseLevel + (lfParams.ReferenceDeltas[0] * scale);
+        return Math.Clamp(level, 0, Av1LoopFilterContext.MaxLoopFilter);
     }
 
-    private Span<byte> GetPlaneBuffer(Av1Plane plane, int subX, int subY, out int stride)
-        => this.frameBuffer.DeriveBlockPointer(plane, new Point(0, 0), subX, subY, out stride);
+    private readonly record struct Av1EdgeDeblockingParameters(byte FilterLength, Av1LoopFilterThreshold Threshold);
 
-    private struct Av1DeblockingParameters
+    private readonly record struct PlaneState
     {
-        public byte FilterLength;
-        public Av1LoopFilterThreshold? Threshold;
+        public int Plane { get; init; }
+
+        public Av1EdgeDirection Direction { get; init; }
+
+        public int SubX { get; init; }
+
+        public int SubY { get; init; }
+
+        public int Width { get; init; }
+
+        public int Height { get; init; }
+
+        public int ModeInfoRows { get; init; }
+
+        public int ModeInfoCols { get; init; }
+
+        public int Stride { get; init; }
+
+        public int FilterLevel { get; init; }
     }
 }
