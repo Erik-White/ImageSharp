@@ -18,6 +18,8 @@
         "pitm", "Primary Item",
         "ispe", "Item Spatial Extent",
         "altt", "Alternative text",
+        "auxC", "Auxiliary type",
+        "auxl", "Auxiliary item reference",
         "colr", "Colour information",
         "hvcC", "HVC configuration",
         "av1C", "AV1 configuration",

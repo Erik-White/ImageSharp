@@ -69,6 +69,16 @@ public enum Heif4CharCode : uint
     Altt = 0x616C7474U,
 
     /// <summary>
+    /// Auxiliary type.
+    /// </summary>
+    AuxC = 0x61757843U,
+
+    /// <summary>
+    /// Auxiliary item reference.
+    /// </summary>
+    Auxl = 0x6175786CU,
+
+    /// <summary>
     /// Colour information.
     /// </summary>
     Colr = 0x636F6C72U,

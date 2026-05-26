@@ -93,6 +93,12 @@ internal class HeifItem(Heif4CharCode type, uint id)
     public FlipMode MirrorMode { get; set; }
 
     /// <summary>
+    /// Gets or sets the auxiliary-type URN sourced from the <c>auxC</c> property; null
+    /// if this item is not declared as an auxiliary image.
+    /// </summary>
+    public string? AuxiliaryType { get; set; }
+
+    /// <summary>
     /// Set the image extent.
     /// </summary>
     /// <param name="extent">The size to set the extent to.</param>

@@ -501,6 +501,12 @@ internal sealed class HeifDecoderCore : ImageDecoderCore
                     FlipMode mirror = (boxBuffer[0] & 0x1) == 0 ? FlipMode.Horizontal : FlipMode.Vertical;
                     properties.Add(new KeyValuePair<Heif4CharCode, object>(Heif4CharCode.Imir, mirror));
                     break;
+                case Heif4CharCode.AuxC:
+                    // ISO/IEC 23008-12 §7.5: FullBox(version=0,flags=0); aux_type is a null-terminated
+                    // UTF-8 URN, optionally followed by aux_subtype bytes.
+                    string auxType = ReadNullTerminatedString(boxBuffer[4..]);
+                    properties.Add(new KeyValuePair<Heif4CharCode, object>(Heif4CharCode.AuxC, auxType));
+                    break;
                 case Heif4CharCode.Altt:
                 case Heif4CharCode.Iscl:
                 case Heif4CharCode.HvcC:
@@ -560,6 +566,9 @@ internal sealed class HeifDecoderCore : ImageDecoderCore
                     break;
                 case Heif4CharCode.Imir:
                     this.items[itemId].MirrorMode = (FlipMode)prop.Value;
+                    break;
+                case Heif4CharCode.AuxC:
+                    this.items[itemId].AuxiliaryType = (string)prop.Value;
                     break;
             }
         }
@@ -776,8 +785,93 @@ internal sealed class HeifDecoderCore : ImageDecoderCore
 
         IMemoryOwner<byte> itemMemory = buffers[itemToDecode.Id];
         Image<TPixel> decoded = itemDecoder.DecodeItemData(this.configuration, itemToDecode, itemMemory.GetSpan());
+        this.ApplyAlphaPlane(decoded, itemToDecode, buffers);
         ApplyOrientation(decoded, itemToDecode);
         return decoded;
+    }
+
+    private void ApplyAlphaPlane<TPixel>(Image<TPixel> primary, HeifItem primaryItem, DisposableDictionary<uint, IMemoryOwner<byte>> buffers)
+        where TPixel : unmanaged, IPixel<TPixel>
+    {
+        HeifItem? alphaItem = this.FindAlphaAuxItem(primaryItem.Id);
+        if (alphaItem == null || !buffers.TryGetValue(alphaItem.Id, out IMemoryOwner<byte>? alphaMemory))
+        {
+            return;
+        }
+
+        IHeifItemDecoder<L8>? alphaDecoder = HeifCompressionFactory.GetDecoder<L8>(alphaItem.Type);
+        if (alphaDecoder == null)
+        {
+            return;
+        }
+
+        using Image<L8> alpha = alphaDecoder.DecodeItemData(this.configuration, alphaItem, alphaMemory.GetSpan());
+        ApplyOrientation(alpha, alphaItem);
+        if (alpha.Width != primary.Width || alpha.Height != primary.Height)
+        {
+            // Per ISO/IEC 23008-12, the auxiliary alpha image must match the master in dimensions.
+            // Skip mismatched aux planes rather than throwing — this is more forgiving for files
+            // with irregular tooling output.
+            return;
+        }
+
+        CompositeAlpha(this.configuration, primary, alpha);
+    }
+
+    private HeifItem? FindAlphaAuxItem(uint primaryItemId)
+    {
+        foreach (HeifItemLink link in this.itemLinks)
+        {
+            if (link.Type != Heif4CharCode.Auxl)
+            {
+                continue;
+            }
+
+            if (!link.DestinationIds.Contains(primaryItemId))
+            {
+                continue;
+            }
+
+            HeifItem? candidate = this.FindItemById(link.SourceId);
+            if (candidate != null && IsAlphaAuxiliary(candidate.AuxiliaryType))
+            {
+                return candidate;
+            }
+        }
+
+        return null;
+    }
+
+    // URNs defined for alpha auxiliary images: AVIF (MIAF) uses the MPEG CICP alpha URN;
+    // HEIF (HEVC) uses the HEVC auxid:1 URN.
+    private static bool IsAlphaAuxiliary(string? auxType) => auxType is
+        "urn:mpeg:mpegB:cicp:systems:auxiliary:alpha" or
+        "urn:mpeg:hevc:2015:auxid:1";
+
+    internal static void CompositeAlpha<TPixel>(Configuration configuration, Image<TPixel> primary, Image<L8> alpha)
+        where TPixel : unmanaged, IPixel<TPixel>
+    {
+        int width = primary.Width;
+        using IMemoryOwner<System.Numerics.Vector4> rowOwner = configuration.MemoryAllocator.Allocate<System.Numerics.Vector4>(width);
+        Memory<System.Numerics.Vector4> vectorMemory = rowOwner.Memory;
+        Configuration cfg = configuration;
+
+        primary.Frames.RootFrame.ProcessPixelRows(alpha.Frames.RootFrame, (primaryAcc, alphaAcc) =>
+        {
+            Span<System.Numerics.Vector4> vectorRow = vectorMemory.Span;
+            for (int y = 0; y < primaryAcc.Height; y++)
+            {
+                Span<TPixel> primaryRow = primaryAcc.GetRowSpan(y);
+                Span<L8> alphaRow = alphaAcc.GetRowSpan(y);
+                PixelOperations<TPixel>.Instance.ToVector4(cfg, primaryRow, vectorRow, PixelConversionModifiers.Scale);
+                for (int x = 0; x < width; x++)
+                {
+                    vectorRow[x].W = alphaRow[x].PackedValue / 255f;
+                }
+
+                PixelOperations<TPixel>.Instance.FromVector4Destructive(cfg, vectorRow, primaryRow, PixelConversionModifiers.Scale);
+            }
+        });
     }
 
     /// <summary>
