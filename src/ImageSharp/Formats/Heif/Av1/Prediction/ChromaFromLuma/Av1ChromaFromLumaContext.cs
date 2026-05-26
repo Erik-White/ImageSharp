@@ -28,6 +28,111 @@ internal class Av1ChromaFromLumaContext
 
     public bool AreParametersComputed { get; private set; }
 
+    public void Reset()
+    {
+        this.Q3Buffer.DangerousGetSingleSpan().Clear();
+        this.bufferWidth = 0;
+        this.bufferHeight = 0;
+        this.AreParametersComputed = false;
+    }
+
+    public void InvalidateParameters() => this.AreParametersComputed = false;
+
+    /// <summary>
+    /// SVT/libaom: cfl_store_tx. Subsamples a luma transform block's reconstructed pixels
+    /// into the Q3 buffer at the chroma offset corresponding to (row, col).
+    /// </summary>
+    public void StoreLuma(Span<byte> luma, int lumaStride, int row, int col, Av1TransformSize transformSize)
+    {
+        int width = transformSize.GetWidth();
+        int height = transformSize.GetHeight();
+        int subXShift = this.subX ? 1 : 0;
+        int subYShift = this.subY ? 1 : 0;
+        int storeRow = row << (Av1Constants.ModeInfoSizeLog2 - subYShift);
+        int storeCol = col << (Av1Constants.ModeInfoSizeLog2 - subXShift);
+        int storeHeight = height >> subYShift;
+        int storeWidth = width >> subXShift;
+
+        this.AreParametersComputed = false;
+
+        if (col == 0 && row == 0)
+        {
+            this.bufferWidth = storeWidth;
+            this.bufferHeight = storeHeight;
+        }
+        else
+        {
+            this.bufferWidth = Math.Max(storeCol + storeWidth, this.bufferWidth);
+            this.bufferHeight = Math.Max(storeRow + storeHeight, this.bufferHeight);
+        }
+
+        DebugGuard.MustBeLessThanOrEqualTo(storeRow + storeHeight, BufferLine, nameof(storeHeight));
+        DebugGuard.MustBeLessThanOrEqualTo(storeCol + storeWidth, BufferLine, nameof(storeWidth));
+
+        ref short destinationStart = ref this.Q3Buffer[storeCol, storeRow];
+        if (this.subX && this.subY)
+        {
+            SubsampleLuma420(luma, lumaStride, ref destinationStart, width, height);
+        }
+        else if (this.subX)
+        {
+            SubsampleLuma422(luma, lumaStride, ref destinationStart, width, height);
+        }
+        else
+        {
+            SubsampleLuma444(luma, lumaStride, ref destinationStart, width, height);
+        }
+    }
+
+    private static void SubsampleLuma420(Span<byte> input, int inputStride, ref short output, int width, int height)
+    {
+        ref short writePtr = ref output;
+        for (int j = 0; j < height; j += 2)
+        {
+            int rowOffset = j * inputStride;
+            for (int i = 0; i < width; i += 2)
+            {
+                int top = rowOffset + i;
+                int bottom = top + inputStride;
+                int sum = input[top] + input[top + 1] + input[bottom] + input[bottom + 1];
+                Unsafe.Add(ref writePtr, i >> 1) = (short)(sum << 1);
+            }
+
+            writePtr = ref Unsafe.Add(ref writePtr, BufferLine);
+        }
+    }
+
+    private static void SubsampleLuma422(Span<byte> input, int inputStride, ref short output, int width, int height)
+    {
+        ref short writePtr = ref output;
+        for (int j = 0; j < height; j++)
+        {
+            int rowOffset = j * inputStride;
+            for (int i = 0; i < width; i += 2)
+            {
+                int sum = input[rowOffset + i] + input[rowOffset + i + 1];
+                Unsafe.Add(ref writePtr, i >> 1) = (short)(sum << 2);
+            }
+
+            writePtr = ref Unsafe.Add(ref writePtr, BufferLine);
+        }
+    }
+
+    private static void SubsampleLuma444(Span<byte> input, int inputStride, ref short output, int width, int height)
+    {
+        ref short writePtr = ref output;
+        for (int j = 0; j < height; j++)
+        {
+            int rowOffset = j * inputStride;
+            for (int i = 0; i < width; i++)
+            {
+                Unsafe.Add(ref writePtr, i) = (short)(input[rowOffset + i] << 3);
+            }
+
+            writePtr = ref Unsafe.Add(ref writePtr, BufferLine);
+        }
+    }
+
     public void ComputeParameters(Av1TransformSize transformSize)
     {
         Guard.IsFalse(this.AreParametersComputed, nameof(this.AreParametersComputed), "Do not call cfl_compute_parameters multiple time on the same values.");

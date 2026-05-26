@@ -205,23 +205,25 @@ internal class Av1BlockDecoder
                     }
                 }
 
-                // Store Luma for CFL if required!
-                if (plane == (int)Av1Plane.Y && StoreChromeFromLumeRequired(colorConfig, partitionInfo, hasChroma))
+                if (plane == (int)Av1Plane.Y && IsChromaFromLumaStoreRequired(colorConfig, modeInfo, hasChroma))
                 {
-                    /*
-                    // SVT: svt_cfl_store_tx
-                    ChromaFromLumaStoreTransform(
-                        partitionInfo,
-                        this.chromaFromLumaContext,
-                        transformInfo.OffsetY,
-                        transformInfo.OffsetX,
-                        transformSize,
-                        blockSize,
-                        colorConfig,
-                        transformBlockReconstructionBuffer,
-                        reconstructionStride,
-                        is16BitsPipeline);
-                    */
+                    int storeRow = transformInfo[0].OffsetY;
+                    int storeCol = transformInfo[0].OffsetX;
+                    if (blockSize.GetHeight() == 4 || blockSize.GetWidth() == 4)
+                    {
+                        if ((modeInfoPosition.Y & 1) != 0 && colorConfig.SubSamplingY)
+                        {
+                            storeRow++;
+                        }
+
+                        if ((modeInfoPosition.X & 1) != 0 && colorConfig.SubSamplingX)
+                        {
+                            storeCol++;
+                        }
+                    }
+
+                    Span<byte> lumaPixels = transformBlockReconstructionBuffer[reconstructionStride..];
+                    this.chromaFromLumaContext.StoreLuma(lumaPixels, reconstructionStride, storeRow, storeCol, transformSize);
                 }
 
                 // increment transform pointer
@@ -291,5 +293,23 @@ internal class Av1BlockDecoder
         }
     }
 
-    private static bool StoreChromeFromLumeRequired(ObuColorConfig colorConfig, Av1PartitionInfo partitionInfo, bool hasChroma) => false;
+    /// <summary>
+    /// libaom: store_cfl_required. For non-chroma-reference luma blocks, always store
+    /// (a future chroma block may use CFL). For chroma-reference blocks, only store if
+    /// the block actually used CFL prediction.
+    /// </summary>
+    private static bool IsChromaFromLumaStoreRequired(ObuColorConfig colorConfig, Av1BlockModeInfo modeInfo, bool hasChroma)
+    {
+        if (colorConfig.IsMonochrome)
+        {
+            return false;
+        }
+
+        if (!hasChroma)
+        {
+            return true;
+        }
+
+        return modeInfo.UvMode == Av1PredictionMode.UvChromaFromLuma;
+    }
 }
