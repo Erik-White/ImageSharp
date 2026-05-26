@@ -71,6 +71,31 @@ internal class Av1Transform2dFlipConfiguration
             [2, -4, 0], // 64x16
         ];
 
+    // libaom: inv_txfm_shift_ls (av1/common/av1_inv_txfm2d.c).
+    // AV1 spec section 7.7.2 (Inverse Transform Process).
+    private static readonly int[][] InverseShiftMap =
+        [
+            [0, -4, 0], // 4x4
+            [-1, -4, 0], // 8x8
+            [-2, -4, 0], // 16x16
+            [-2, -4, 0], // 32x32
+            [-2, -4, 0], // 64x64
+            [0, -4, 0], // 4x8
+            [0, -4, 0], // 8x4
+            [-1, -4, 0], // 8x16
+            [-1, -4, 0], // 16x8
+            [-1, -4, 0], // 16x32
+            [-1, -4, 0], // 32x16
+            [-1, -4, 0], // 32x64
+            [-1, -4, 0], // 64x32
+            [0, -4, 0], // 4x16
+            [0, -4, 0], // 16x4
+            [-1, -4, 0], // 8x32
+            [-1, -4, 0], // 32x8
+            [-2, -4, 0], // 16x64
+            [-2, -4, 0], // 64x16
+        ];
+
     private static readonly int[][] CosBitColumnMap =
         [[13, 13, 13, 0, 0], [13, 13, 13, 12, 0], [13, 13, 13, 12, 13], [0, 13, 13, 12, 13], [0, 0, 13, 12, 13]];
 
@@ -123,19 +148,26 @@ internal class Av1Transform2dFlipConfiguration
         ];
 
     private int[] shift;
+    private readonly bool isInverse;
 
     public Av1Transform2dFlipConfiguration(Av1TransformType transformType, Av1TransformSize transformSize)
+        : this(transformType, transformSize, isInverse: false)
+    {
+    }
+
+    public Av1Transform2dFlipConfiguration(Av1TransformType transformType, Av1TransformSize transformSize, bool isInverse)
     {
         // SVT: svt_av1_get_inv_txfm_cfg
         // SVT: svt_aom_transform_config
         this.TransformSize = transformSize;
         this.TransformType = transformType;
+        this.isInverse = isInverse;
         this.SetFlip(transformType);
         this.TransformTypeColumn = VerticalType[(int)transformType];
         this.TransformTypeRow = HorizontalType[(int)transformType];
         int txw_idx = transformSize.GetBlockWidthLog2() - SmallestTransformSizeLog2;
         int txh_idx = transformSize.GetBlockHeightLog2() - SmallestTransformSizeLog2;
-        this.shift = ShiftMap[(int)transformSize];
+        this.shift = (isInverse ? InverseShiftMap : ShiftMap)[(int)transformSize];
         this.CosBitColumn = CosBitColumnMap[txw_idx][txh_idx];
         this.CosBitRow = CosBitRowMap[txw_idx][txh_idx];
         this.TransformFunctionTypeColumn = TransformFunctionTypeMap[txh_idx][(int)this.TransformTypeColumn];
@@ -144,7 +176,10 @@ internal class Av1Transform2dFlipConfiguration
         this.StageNumberRow = this.TransformFunctionTypeRow != Av1TransformFunctionType.Invalid ? StageNumberList[(int)this.TransformFunctionTypeRow] : -1;
         this.StageRangeColumn = new byte[12];
         this.StageRangeRow = new byte[12];
-        this.NonScaleRange();
+        if (!isInverse)
+        {
+            this.NonScaleRange();
+        }
     }
 
     public int CosBitColumn { get; }
@@ -183,6 +218,27 @@ internal class Av1Transform2dFlipConfiguration
     /// </summary>
     public void GenerateStageRange(int bitDepth)
     {
+        if (this.isInverse)
+        {
+            // libaom av1_gen_inv_stage_range: opt_range is fixed per dimension and
+            // does NOT depend on the forward range_mult2 table.
+            int sizeCol = this.TransformSize.GetWidth();
+            int sizeRow = this.TransformSize.GetHeight();
+            byte optRangeRow = (byte)(sizeCol == 64 ? 32 : sizeCol == 32 ? 20 : 16);
+            byte optRangeCol = (byte)(sizeRow == 64 ? 32 : sizeRow == 32 ? 20 : 16);
+            for (int i = 0; i < this.StageNumberColumn && i < MaxStageNumber; ++i)
+            {
+                this.StageRangeColumn[i] = optRangeCol;
+            }
+
+            for (int i = 0; i < this.StageNumberRow && i < MaxStageNumber; ++i)
+            {
+                this.StageRangeRow[i] = optRangeRow;
+            }
+
+            return;
+        }
+
         // Take the shift from the larger dimension in the rectangular case.
         Span<int> shift = this.Shift;
 

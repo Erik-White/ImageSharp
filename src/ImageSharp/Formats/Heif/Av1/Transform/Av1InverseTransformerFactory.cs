@@ -17,7 +17,7 @@ internal static class Av1InverseTransformerFactory
         int width = transformFunctionParameters.TransformSize.GetWidth();
         int height = transformFunctionParameters.TransformSize.GetHeight();
         Span<int> buffer = new int[(width * height) + (2 * Math.Max(width, height))];
-        Av1Transform2dFlipConfiguration config = new(transformFunctionParameters.TransformType, transformFunctionParameters.TransformSize);
+        Av1Transform2dFlipConfiguration config = new(transformFunctionParameters.TransformType, transformFunctionParameters.TransformSize, isInverse: true);
         Av1Inverse2dTransformer.Transform2dAdd(coefficients, readBuffer, readStride, writeBuffer, writeStride, config, buffer);
     }
 
@@ -27,7 +27,7 @@ internal static class Av1InverseTransformerFactory
         int width = transformFunctionParameters.TransformSize.GetWidth();
         int height = transformFunctionParameters.TransformSize.GetHeight();
         Span<int> buffer = new int[(width * height) + (2 * Math.Max(width, height))];
-        Av1Transform2dFlipConfiguration config = new(transformFunctionParameters.TransformType, transformFunctionParameters.TransformSize);
+        Av1Transform2dFlipConfiguration config = new(transformFunctionParameters.TransformType, transformFunctionParameters.TransformSize, isInverse: true);
         Av1Inverse2dTransformer.Transform2dAdd(coefficients, readBuffer, readStride, writeBuffer, writeStride, config, buffer, transformFunctionParameters.BitDepth);
     }
 
