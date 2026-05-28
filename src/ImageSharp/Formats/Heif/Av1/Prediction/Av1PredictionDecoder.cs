@@ -304,8 +304,14 @@ internal class Av1PredictionDecoder
         // Distance between bottom edge of this pred block to frame bottom edge
         int yd = (partitionInfo.ModeBlockToBottomEdge >> (3 + subY)) +
             (partitionInfo.HeightInPixels[(int)plane] - (blockModeInfoRowOffset << Av1Constants.ModeInfoSizeLog2) - transformHeight) - ydOffset;
-        bool rightAvailable = modeInfoColumn + ((blockModeInfoColumnOffset + transformWidth) << subX) < tileInfo.ModeInfoColumnEnd;
-        bool bottomAvailable = (yd > 0) && (modeInfoRow + ((blockModeInfoRowOffset + transformHeight) << subY) < tileInfo.ModeInfoRowEnd);
+
+        // libaom reconintra.c: right_available / bottom_available compare against
+        // tile.mi_col_end / tile.mi_row_end, so the offset and TU width must be in
+        // mode-info units (Get4x4*Count), not pixels.
+        int transformWidthInMi = transformSize.Get4x4WideCount();
+        int transformHeightInMi = transformSize.Get4x4HighCount();
+        bool rightAvailable = modeInfoColumn + ((blockModeInfoColumnOffset + transformWidthInMi) << subX) < tileInfo.ModeInfoColumnEnd;
+        bool bottomAvailable = (yd > 0) && (modeInfoRow + ((blockModeInfoRowOffset + transformHeightInMi) << subY) < tileInfo.ModeInfoRowEnd);
 
         Av1PartitionType partition = modeInfo.PartitionType;
 
@@ -636,6 +642,7 @@ internal class Av1PredictionDecoder
         Span<byte> leftData = stackalloc byte[(Av1Constants.MaxTransformSize * 2) + 32];
         Span<byte> aboveRow = aboveData[16..];
         Span<byte> leftColumn = leftData[16..];
+
         int transformWidth = transformSize.GetWidth();
         int transformHeight = transformSize.GetHeight();
         bool isDirectionalMode = mode.IsDirectional();
@@ -896,7 +903,12 @@ internal class Av1PredictionDecoder
         }
     }
 
-    private static void UpsampleIntraEdge(Span<byte> buffer, int count)
+    /// <summary>
+    /// libaom <c>av1_upsample_intra_edge_c</c>: in-place 2x upsample of an intra edge
+    /// (above row or left column). The buffer must have at least 2 bytes of valid header
+    /// at <c>buffer[-1]</c> and <c>buffer[-2]</c> so the filter can read/write them.
+    /// </summary>
+    internal static void UpsampleIntraEdge(Span<byte> buffer, int count)
     {
         // TODO: Consider creating SIMD version
 

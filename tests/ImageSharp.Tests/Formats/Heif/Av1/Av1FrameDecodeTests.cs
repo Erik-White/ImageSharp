@@ -101,14 +101,15 @@ public class Av1FrameDecodeTests
     /// reconstruction divergences are fixed, this test should match libaom exactly.
     /// </summary>
     /// <summary>
-    /// Pins the output of the FIRST MI-block-row of <c>mono-ibc-256.ivf</c>. Before the
-    /// Paeth+WHT+intra-edge top-right fixes, the entire frame diverged by mean_abs ≈ 36;
-    /// after the fixes, the first 4 rows are within ±1 of libaom for all 256 columns.
-    /// We assert max_abs ≤ 1 here as a tight regression — any new bug in the per-TU
-    /// neighbor synthesis or the lossless WHT will reopen the wide divergence.
+    /// Pins overall accuracy of <c>mono-ibc-256.ivf</c>. Before the Paeth/WHT/intra-edge
+    /// fixes the frame diverged by mean_abs ≈ 36 with max=252; the fixes brought us to
+    /// max=2, mean_abs ≈ 0.15 with ~85% of pixels exact. Asserting both a bounded max
+    /// and a low mean catches any regression in per-TU neighbor synthesis, the lossless
+    /// WHT, or the right_available mi-units conversion that surfaced as constant-per-TU
+    /// output in the bottom-right of the frame.
     /// </summary>
     [Fact]
-    public void MonoIbc256_Frame0_FirstMiBlockRow_MatchesLibaomReference()
+    public void MonoIbc256_Frame0_Y_WithinSubLsbOfLibaom()
     {
         byte[] obus = LoadIvfFirstFrame(TestImages.Heif.MonoIbc256Ivf);
 
@@ -118,19 +119,20 @@ public class Av1FrameDecodeTests
         Assert.NotNull(decoder.FrameHeader);
 
         int width = decoder.FrameHeader!.FrameSize.FrameWidth;
+        int height = decoder.FrameHeader.FrameSize.FrameHeight;
         Assert.Equal(256, width);
         byte[] reference = LoadReference("Heif/Av1/mono-ibc-256.frame0.yuv");
 
         int originX = decoder.FrameBuffer!.OriginX;
         int originY = decoder.FrameBuffer.OriginY;
 
-        const int rowsToCompare = 4;
-        PlaneDiff yDiff = ComparePlane(decoder.FrameBuffer.BufferY!, reference.AsSpan(0, width * rowsToCompare), width, rowsToCompare, originX, originY);
-        this.output.WriteLine($"Y rows 0-3: {yDiff}");
-        Assert.True(yDiff.MaxAbs <= 1, $"Y rows 0-3 diverge by more than 1 LSB: {yDiff}");
+        PlaneDiff yDiff = ComparePlane(decoder.FrameBuffer.BufferY!, reference.AsSpan(0, width * height), width, height, originX, originY);
+        this.output.WriteLine($"Y: {yDiff}");
+        Assert.True(yDiff.MaxAbs <= 2, $"Y max divergence > 2 LSB: {yDiff}");
+        Assert.True(yDiff.SumAbs <= 16384, $"Y sum_abs > 16384 (mean ~0.25 LSB): {yDiff}");
     }
 
-    [Fact(Skip = "Non-IBC intra reconstruction has small remaining divergences (mean_abs ~0.83 after smooth-H/V scale fix). Largest remaining errors come from Zone1 directional predictor with upsampleAbove=1 — likely an intra-edge upsampler bug.")]
+    [Fact(Skip = "Sub-LSB rounding noise after the right_available unit fix: mean_abs ~0.15, max ±2 across the frame, ~85% of pixels exact. Likely IDCT rounding mismatch with libaom; not yet diagnosed.")]
     public void MonoIbc256_Frame0_Y_MatchesLibaomReference()
     {
         byte[] obus = LoadIvfFirstFrame(TestImages.Heif.MonoIbc256Ivf);

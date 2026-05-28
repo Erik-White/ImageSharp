@@ -393,6 +393,44 @@ public class Av1PredictorTests
         }
     }
 
+    /// <summary>
+    /// libaom <c>av1_upsample_intra_edge_c</c>: in-place 2x upsample with a 4-tap
+    /// (-1, 9, 9, -1) filter. Pins the exact output for a known input so any drift in
+    /// the in-place write order or the filter coefficients is caught.
+    /// </summary>
+    [Fact]
+    public void UpsampleIntraEdge_KnownGradient_MatchesLibaomFilter()
+    {
+        // Layout: 16 bytes of front padding, then count=4 actual samples. Caller writes
+        // tl at buffer[-1] before calling, matching the decoder's edge-prep convention.
+        const int padding = 16;
+        const int count = 4;
+        byte[] storage = new byte[padding + (2 * count) + 16];
+        Span<byte> buffer = storage.AsSpan(padding);
+
+        // tl = 100 sits at buffer[-1].
+        storage[padding - 1] = 100;
+        buffer[0] = 110;
+        buffer[1] = 120;
+        buffer[2] = 130;
+        buffer[3] = 140;
+
+        Av1PredictionDecoder.UpsampleIntraEdge(buffer, count);
+
+        // Expected per the Python reference of libaom's algorithm:
+        //   p[-2]=100, p[-1]=104, p[0]=110, p[1]=115, p[2]=120, p[3]=125,
+        //   p[4]=130, p[5]=136, p[6]=140
+        Assert.Equal(100, storage[padding - 2]);
+        Assert.Equal(104, storage[padding - 1]);
+        Assert.Equal(110, storage[padding + 0]);
+        Assert.Equal(115, storage[padding + 1]);
+        Assert.Equal(120, storage[padding + 2]);
+        Assert.Equal(125, storage[padding + 3]);
+        Assert.Equal(130, storage[padding + 4]);
+        Assert.Equal(136, storage[padding + 5]);
+        Assert.Equal(140, storage[padding + 6]);
+    }
+
     private static void AssertValue(byte expected, byte actual)
     {
         Assert.NotEqual(0, actual);
