@@ -14,6 +14,17 @@ internal static class Av1InverseTransformerFactory
     {
         Guard.MustBeLessThanOrEqualTo(transformFunctionParameters.BitDepth, 8, nameof(transformFunctionParameters));
         Guard.IsFalse(transformFunctionParameters.Is16BitPipeline, nameof(transformFunctionParameters), "Calling 8-bit pipeline while 16-bit is requested.");
+        if (transformFunctionParameters.IsLossless)
+        {
+            // libaom highbd_inv_txfm_add_4x4_c: for lossless frames the only valid transform
+            // is DCT_DCT and it is replaced by the integer 4x4 inverse Walsh-Hadamard. The
+            // read and write buffers are aliased here.
+            Guard.IsTrue(transformFunctionParameters.TransformSize == Av1TransformSize.Size4x4, nameof(transformFunctionParameters), "Lossless transforms must be 4x4.");
+            Guard.IsTrue(transformFunctionParameters.TransformType == Av1TransformType.DctDct, nameof(transformFunctionParameters), "Lossless transform type must be DCT_DCT.");
+            Av1Inverse2dTransformer.InverseWalshHadamard4x4Add(coefficients, writeBuffer, writeStride, transformFunctionParameters.EndOfBuffer);
+            return;
+        }
+
         int width = transformFunctionParameters.TransformSize.GetWidth();
         int height = transformFunctionParameters.TransformSize.GetHeight();
         Span<int> buffer = new int[(width * height) + (2 * Math.Max(width, height))];

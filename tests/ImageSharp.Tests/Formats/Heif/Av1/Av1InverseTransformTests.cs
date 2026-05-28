@@ -185,6 +185,106 @@ public class Av1InverseTransformTests
         Assert.True(CompareWithError<short>(expected, actual, 1));
     }
 
+    /// <summary>
+    /// Lossless WHT4x4 inverse: with all coefficients zero, reconstruction should be a
+    /// no-op — destination must equal source. Catches the regression where the lossless
+    /// path was missing entirely (running the regular DCT inverse over a coded-lossless
+    /// frame produces non-zero residuals even on all-zero input).
+    /// </summary>
+    [Fact]
+    public void Wht4x4_AllZeroCoefficients_LeavesDestinationUnchanged()
+    {
+        Span<int> coefficients = stackalloc int[16];
+        byte[] destination = new byte[16];
+        for (int i = 0; i < 16; i++)
+        {
+            destination[i] = (byte)(10 + i);
+        }
+
+        Av1TransformFunctionParameters parameters = new()
+        {
+            TransformType = Av1TransformType.DctDct,
+            TransformSize = Av1TransformSize.Size4x4,
+            EndOfBuffer = 0,
+            IsLossless = true,
+            BitDepth = 8,
+            Is16BitPipeline = false
+        };
+
+        Av1InverseTransformerFactory.InverseTransformAdd(coefficients, destination, 4, destination, 4, parameters);
+
+        for (int i = 0; i < 16; i++)
+        {
+            Assert.Equal((byte)(10 + i), destination[i]);
+        }
+    }
+
+    /// <summary>
+    /// libaom <c>av1_highbd_iwht4x4_1_add_c</c>: when only DC is non-zero, the output is
+    /// floor(DC/4) split into the (a1, e1) checkerboard via two halvings. For DC=8 the
+    /// row pass produces {a1=2, e1=1, e1=1, e1=1}; the column pass then produces a per-
+    /// column (a1, e1) pair which gives the constant pattern below. Hand-traced from the
+    /// reference C implementation.
+    /// </summary>
+    [Fact]
+    public void Wht4x4_DcOnlyCoefficient_MatchesReference()
+    {
+        Span<int> coefficients = stackalloc int[16];
+        coefficients[0] = 8;
+        byte[] destination = new byte[16];
+        Av1TransformFunctionParameters parameters = new()
+        {
+            TransformType = Av1TransformType.DctDct,
+            TransformSize = Av1TransformSize.Size4x4,
+            EndOfBuffer = 1,
+            IsLossless = true,
+            BitDepth = 8,
+            Is16BitPipeline = false
+        };
+
+        Av1InverseTransformerFactory.InverseTransformAdd(coefficients, destination, 4, destination, 4, parameters);
+
+        // DC=8 (>> 2) = 2; e1 = 2 >> 1 = 1; a1 = 2 - 1 = 1.
+        // tmp = [1, 1, 1, 1]. Column pass on each tmp[i]: e1 = 1 >> 1 = 0; a1 = 1 - 0 = 1.
+        // Row 0 receives a1 = 1, rows 1..3 receive e1 = 0.
+        byte[] expected = [
+            1, 1, 1, 1,
+            0, 0, 0, 0,
+            0, 0, 0, 0,
+            0, 0, 0, 0,
+        ];
+        for (int i = 0; i < 16; i++)
+        {
+            Assert.Equal(expected[i], destination[i]);
+        }
+    }
+
+    /// <summary>
+    /// The lossless dispatcher must guard against being called with a non-DCT_DCT
+    /// transform type. AV1 spec: in coded_lossless frames the transform type is forced
+    /// to DCT_DCT for every block, and libaom asserts the same.
+    /// </summary>
+    [Fact]
+    public void Wht4x4_NonDctTransformType_Throws()
+    {
+        int[] coefficients = new int[16];
+        byte[] destination = new byte[16];
+        Av1TransformFunctionParameters parameters = new()
+        {
+            TransformType = Av1TransformType.AdstAdst,
+            TransformSize = Av1TransformSize.Size4x4,
+            EndOfBuffer = 0,
+            IsLossless = true,
+            BitDepth = 8,
+            Is16BitPipeline = false
+        };
+
+        Assert.ThrowsAny<Exception>(() =>
+        {
+            Av1InverseTransformerFactory.InverseTransformAdd(coefficients, destination, 4, destination, 4, parameters);
+        });
+    }
+
     [Fact]
     public void FlipHorizontalAndVerticalTest()
     {

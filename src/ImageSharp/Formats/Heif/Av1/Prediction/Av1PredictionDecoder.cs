@@ -767,16 +767,19 @@ internal class Av1PredictionDecoder
                 needRight = angle < 90;
             }
 
+            // libaom reconintra.c: num_top_pixels_needed gates on n_topright_px >= 0, but the
+            // copy of the top-right pixels is gated on n_topright_px > 0. When the top-right
+            // is unavailable the missing pixels are extended from the rightmost top sample.
             uint numTopPixelsNeeded = (uint)(transformWidth + (needRight ? transformHeight : 0));
             if (topPixelCount > 0)
             {
                 Unsafe.CopyBlock(ref aboveRow[0], ref aboveNeighbor[0], (uint)topPixelCount);
                 int i = topPixelCount;
-                if (needRight && topPixelCount > 0)
+                if (topRightPixelCount > 0)
                 {
                     Guard.IsTrue(topPixelCount == transformWidth, nameof(topPixelCount), string.Empty);
-                    Unsafe.CopyBlock(ref aboveRow[transformWidth], ref aboveNeighbor[transformWidth], (uint)topPixelCount);
-                    i += topPixelCount;
+                    Unsafe.CopyBlock(ref aboveRow[transformWidth], ref aboveNeighbor[transformWidth], (uint)topRightPixelCount);
+                    i += topRightPixelCount;
                 }
 
                 if (i < numTopPixelsNeeded)

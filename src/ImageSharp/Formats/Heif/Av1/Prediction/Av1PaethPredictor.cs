@@ -24,25 +24,30 @@ internal class Av1PaethPredictor : IAv1Predictor
     }
 
     public static void PredictScalar(Av1TransformSize transformSize, Span<byte> destination, nuint stride, Span<byte> above, Span<byte> left)
-        => new Av1DcPredictor(transformSize).PredictScalar(destination, stride, above, left);
+        => new Av1PaethPredictor(transformSize).PredictScalar(destination, stride, above, left);
 
     public void PredictScalar(Span<byte> destination, nuint stride, Span<byte> above, Span<byte> left)
     {
         Guard.MustBeGreaterThanOrEqualTo(stride, this.blockWidth, nameof(stride));
         Guard.MustBeSizedAtLeast(left, (int)this.blockHeight, nameof(left));
         Guard.MustBeSizedAtLeast(above, (int)this.blockWidth, nameof(above));
-        Guard.MustBeSizedAtLeast(destination, (int)this.blockHeight * (int)stride, nameof(destination));
+        Guard.MustBeSizedAtLeast(destination, (((int)this.blockHeight - 1) * (int)stride) + (int)this.blockWidth, nameof(destination));
         ref byte leftRef = ref left[0];
         ref byte aboveRef = ref above[0];
-        int yTopLeft = above[-1];
+
+        // libaom Paeth reads the top-left sample as `above[-1]`. The caller has already
+        // stored the synthesized top-left byte one position before above[0] (see
+        // Av1PredictionDecoder.DecodeBuildIntraPredictors), so reach back via Unsafe.
+        int yTopLeft = Unsafe.Subtract(ref aboveRef, 1);
         ref byte destinationRef = ref destination[0];
         for (nuint r = 0; r < this.blockHeight; r++)
         {
             for (nuint c = 0; c < this.blockWidth; c++)
             {
-                destinationRef = PredictSingle(Unsafe.Add(ref leftRef, r), Unsafe.Add(ref aboveRef, c), yTopLeft);
-                destinationRef = ref Unsafe.Add(ref destinationRef, stride);
+                Unsafe.Add(ref destinationRef, c) = PredictSingle(Unsafe.Add(ref leftRef, r), Unsafe.Add(ref aboveRef, c), yTopLeft);
             }
+
+            destinationRef = ref Unsafe.Add(ref destinationRef, stride);
         }
     }
 

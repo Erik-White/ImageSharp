@@ -93,18 +93,44 @@ public class Av1FrameDecodeTests
 
     /// <summary>
     /// `mono-ibc-256.ivf` — 256x256 8-bit monochrome (Cmono) fixture that exercises the
-    /// <c>IsMonochrome</c> branch the 4:2:0 IBC fixtures don't cover. libaom emits 4 valid
-    /// IBC blocks; the reference YUV was produced by aomdec --i420 (chroma planes are
-    /// synthesized as 0x80 fillers and ignored here).
+    /// <c>IsMonochrome</c> branch the 4:2:0 IBC fixtures don't cover. The frame is also
+    /// coded as <c>coded_lossless=true</c>, which forces every transform unit through the
+    /// inverse Walsh-Hadamard 4x4 path and skips loop filtering. libaom emits 4 valid IBC
+    /// blocks; the reference YUV was produced by aomdec --i420 (chroma planes are
+    /// synthesized as 0x80 fillers and ignored here). Once the remaining non-IBC intra
+    /// reconstruction divergences are fixed, this test should match libaom exactly.
     /// </summary>
-    /// <remarks>
-    /// Skipped: monochrome reconstruction (DC prediction / inverse transform) diverges
-    /// from libaom on a non-IBC path that this fixture happens to surface. The parser
-    /// bugs the fixture caught (numPlanes-1 array sizing in Av1BlockModeInfo, missing
-    /// IsMonochrome gate in Av1PaletteDecoder) are fixed; pixel-exact reconstruction is
-    /// a separate task.
-    /// </remarks>
-    [Fact(Skip = "Monochrome reconstruction TODO; fixture retained for parser-bug regression and future enable.")]
+    /// <summary>
+    /// Pins the output of the FIRST MI-block-row of <c>mono-ibc-256.ivf</c>. Before the
+    /// Paeth+WHT+intra-edge top-right fixes, the entire frame diverged by mean_abs ≈ 36;
+    /// after the fixes, the first 4 rows are within ±1 of libaom for all 256 columns.
+    /// We assert max_abs ≤ 1 here as a tight regression — any new bug in the per-TU
+    /// neighbor synthesis or the lossless WHT will reopen the wide divergence.
+    /// </summary>
+    [Fact]
+    public void MonoIbc256_Frame0_FirstMiBlockRow_MatchesLibaomReference()
+    {
+        byte[] obus = LoadIvfFirstFrame(TestImages.Heif.MonoIbc256Ivf);
+
+        Av1Decoder decoder = new(Configuration.Default);
+        using Image<Rgba32> _ = decoder.Decode<Rgba32>(obus);
+        Assert.NotNull(decoder.FrameBuffer);
+        Assert.NotNull(decoder.FrameHeader);
+
+        int width = decoder.FrameHeader!.FrameSize.FrameWidth;
+        Assert.Equal(256, width);
+        byte[] reference = LoadReference("Heif/Av1/mono-ibc-256.frame0.yuv");
+
+        int originX = decoder.FrameBuffer!.OriginX;
+        int originY = decoder.FrameBuffer.OriginY;
+
+        const int rowsToCompare = 4;
+        PlaneDiff yDiff = ComparePlane(decoder.FrameBuffer.BufferY!, reference.AsSpan(0, width * rowsToCompare), width, rowsToCompare, originX, originY);
+        this.output.WriteLine($"Y rows 0-3: {yDiff}");
+        Assert.True(yDiff.MaxAbs <= 1, $"Y rows 0-3 diverge by more than 1 LSB: {yDiff}");
+    }
+
+    [Fact(Skip = "Non-IBC intra reconstruction still has small divergences. Paeth + WHT + intra-edge top-right fixes brought mean_abs from 36 to ~1; remaining errors are scattered ~1-LSB rounding plus a few directional-predictor edge cases.")]
     public void MonoIbc256_Frame0_Y_MatchesLibaomReference()
     {
         byte[] obus = LoadIvfFirstFrame(TestImages.Heif.MonoIbc256Ivf);

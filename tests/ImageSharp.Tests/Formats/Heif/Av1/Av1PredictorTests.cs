@@ -262,6 +262,81 @@ public class Av1PredictorTests
         Assert.Equal(expectedDigest, predictorMemory.GetDestinationDigest());
     }
 
+    /// <summary>
+    /// Paeth picks the closest of {top[c], left[r], topLeft} to (top[c]+left[r]-topLeft).
+    /// When all three neighbours are equal (=K), basis=K and every candidate ties at
+    /// distance 0, so Paeth fills the block with K. The two-bug regression (static
+    /// dispatch instantiating Av1DcPredictor + inner-loop advancing destination by stride
+    /// per pixel) makes this trivially-true case fail in obvious ways.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(GetTransformSizes))]
+    public void VerifyPaeth_FlatNeighborhood_FillsWithConstant(int _, int width, int height)
+    {
+        const byte fillValue = 64;
+        Av1IntraPredictionMemory predictorMemory = new(8);
+        Span<byte> top = predictorMemory.Top;
+        Span<byte> left = predictorMemory.Left;
+        top.Fill(fillValue);
+        left.Fill(fillValue);
+
+        const int stride = 1 << (Av1Constants.MaxSuperBlockSizeLog2 - 1);
+        Av1PaethPredictor predictor = new(new Size(width, height));
+        predictor.PredictScalar(predictorMemory.Destination, stride, top[Av1IntraPredictionMemory.Padding..], left[Av1IntraPredictionMemory.Padding..]);
+
+        Span<byte> destination = predictorMemory.Destination;
+        for (int r = 0; r < height; r++)
+        {
+            for (int c = 0; c < width; c++)
+            {
+                Assert.Equal(fillValue, destination[(r * stride) + c]);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Hand-traced 4x4 Paeth case with top=[10,20,30,40], left=[50,60,70,80], topLeft=15.
+    /// Each cell's basis is top[c] + left[r] - 15; Paeth picks whichever of top, left,
+    /// topLeft minimises the absolute difference. The expected output below is computed
+    /// the same way libaom's <c>paeth_predictor_single</c> does, so any drift in the
+    /// inner-loop indexing or the tie-break order surfaces here.
+    /// </summary>
+    [Fact]
+    public void VerifyPaeth_KnownCase_4x4()
+    {
+        byte[] above = [10, 20, 30, 40];
+        byte[] left = [50, 60, 70, 80];
+        byte[] aboveBuffer = new byte[5];
+        aboveBuffer[0] = 15;
+        above.CopyTo(aboveBuffer, 1);
+        const int stride = 16;
+        byte[] destination = new byte[stride * 4];
+
+        Av1PaethPredictor predictor = new(new Size(4, 4));
+        predictor.PredictScalar(destination, stride, aboveBuffer.AsSpan(1), left);
+
+        byte[] expected = new byte[16];
+        for (int r = 0; r < 4; r++)
+        {
+            for (int c = 0; c < 4; c++)
+            {
+                int basis = above[c] + left[r] - 15;
+                int pTop = Math.Abs(basis - above[c]);
+                int pLeft = Math.Abs(basis - left[r]);
+                int pTopLeft = Math.Abs(basis - 15);
+                expected[(r * 4) + c] = pLeft <= pTop && pLeft <= pTopLeft ? left[r] : pTop <= pTopLeft ? above[c] : (byte)15;
+            }
+        }
+
+        for (int r = 0; r < 4; r++)
+        {
+            for (int c = 0; c < 4; c++)
+            {
+                Assert.Equal(expected[(r * 4) + c], destination[(r * stride) + c]);
+            }
+        }
+    }
+
     private static void AssertValue(byte expected, byte actual)
     {
         Assert.NotEqual(0, actual);
