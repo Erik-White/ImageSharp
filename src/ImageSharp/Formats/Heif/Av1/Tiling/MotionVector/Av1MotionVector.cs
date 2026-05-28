@@ -10,8 +10,6 @@ namespace SixLabors.ImageSharp.Formats.Heif.Av1.Tiling.MotionVector;
 /// </summary>
 internal readonly record struct Av1MotionVector(short Row, short Col)
 {
-    public static Av1MotionVector Zero => default;
-
     public bool IsZero => this.Row == 0 && this.Col == 0;
 
     public static Av1MotionVector operator +(Av1MotionVector a, Av1MotionVector b)

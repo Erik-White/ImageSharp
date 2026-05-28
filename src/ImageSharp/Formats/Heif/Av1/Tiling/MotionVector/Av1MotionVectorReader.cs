@@ -37,7 +37,7 @@ internal static class Av1MotionVectorReader
             blockSize.Get4x4WideCount(),
             blockSize.Get4x4HighCount());
         Av1MotionVector difference = ReadMotionVectorDifference(
-            ref reader, forceIntegerMv: true, allowHighPrecisionMv: false, useDisplacementVectorContext: true);
+            ref reader, Av1MotionVectorContext.IntraBlockCopy, forceIntegerMv: true, allowHighPrecisionMv: false);
         Av1MotionVector finalDv = predictor + difference;
         partitionInfo.ModeInfo.DisplacementVector = finalDv;
 
@@ -58,30 +58,24 @@ internal static class Av1MotionVectorReader
     /// Reads the motion-vector difference relative to a predictor. The returned
     /// vector is the diff only; callers add it to <c>PredMv</c>.
     /// </summary>
-    /// <remarks>
-    /// When <paramref name="useDisplacementVectorContext"/> is true, the IBC `ndvc`
-    /// CDFs are used; otherwise the standard inter-MV `nmvc` CDFs apply.
-    /// </remarks>
     public static Av1MotionVector ReadMotionVectorDifference(
         ref Av1SymbolDecoder reader,
+        Av1MotionVectorContext ctx,
         bool forceIntegerMv,
-        bool allowHighPrecisionMv,
-        bool useDisplacementVectorContext = false)
+        bool allowHighPrecisionMv)
     {
-        Av1MotionVectorJoint joint = useDisplacementVectorContext
-            ? reader.ReadDisplacementVectorJoint()
-            : reader.ReadMotionVectorJoint();
+        Av1MotionVectorJoint joint = reader.ReadMotionVectorJoint(ctx);
         short row = 0;
         short col = 0;
 
         if (joint is Av1MotionVectorJoint.VerticalNonZero or Av1MotionVectorJoint.HorizontalAndVerticalNonZero)
         {
-            row = (short)ReadComponent(ref reader, Av1MotionVectorComponent.Vertical, forceIntegerMv, allowHighPrecisionMv, useDisplacementVectorContext);
+            row = (short)ReadComponent(ref reader, ctx, Av1MotionVectorComponent.Vertical, forceIntegerMv, allowHighPrecisionMv);
         }
 
         if (joint is Av1MotionVectorJoint.HorizontalNonZero or Av1MotionVectorJoint.HorizontalAndVerticalNonZero)
         {
-            col = (short)ReadComponent(ref reader, Av1MotionVectorComponent.Horizontal, forceIntegerMv, allowHighPrecisionMv, useDisplacementVectorContext);
+            col = (short)ReadComponent(ref reader, ctx, Av1MotionVectorComponent.Horizontal, forceIntegerMv, allowHighPrecisionMv);
         }
 
         return new Av1MotionVector(row, col);
@@ -89,20 +83,20 @@ internal static class Av1MotionVectorReader
 
     private static int ReadComponent(
         ref Av1SymbolDecoder reader,
+        Av1MotionVectorContext ctx,
         Av1MotionVectorComponent comp,
         bool forceIntegerMv,
-        bool allowHighPrecisionMv,
-        bool useDv)
+        bool allowHighPrecisionMv)
     {
-        bool sign = useDv ? reader.ReadDisplacementVectorSign(comp) : reader.ReadMotionVectorSign(comp);
-        int mvClass = useDv ? reader.ReadDisplacementVectorClass(comp) : reader.ReadMotionVectorClass(comp);
+        bool sign = reader.ReadMotionVectorSign(ctx, comp);
+        int mvClass = reader.ReadMotionVectorClass(ctx, comp);
         int magnitude;
 
         if (mvClass == 0)
         {
-            int class0Bit = useDv ? reader.ReadDisplacementVectorClass0Bit(comp) : reader.ReadMotionVectorClass0Bit(comp);
-            int fr = forceIntegerMv ? 3 : (useDv ? reader.ReadDisplacementVectorClass0Fraction(comp, class0Bit) : reader.ReadMotionVectorClass0Fraction(comp, class0Bit));
-            int hp = allowHighPrecisionMv ? (useDv ? reader.ReadDisplacementVectorClass0HighPrecision(comp) : reader.ReadMotionVectorClass0HighPrecision(comp)) : 1;
+            int class0Bit = reader.ReadMotionVectorClass0Bit(ctx, comp);
+            int fr = forceIntegerMv ? 3 : reader.ReadMotionVectorClass0Fraction(ctx, comp, class0Bit);
+            int hp = allowHighPrecisionMv ? reader.ReadMotionVectorClass0HighPrecision(ctx, comp) : 1;
             magnitude = ((class0Bit << 3) | (fr << 1) | hp) + 1;
         }
         else
@@ -110,13 +104,13 @@ internal static class Av1MotionVectorReader
             int d = 0;
             for (int i = 0; i < mvClass; i++)
             {
-                int bit = useDv ? reader.ReadDisplacementVectorBit(comp, i) : reader.ReadMotionVectorBit(comp, i);
+                int bit = reader.ReadMotionVectorBit(ctx, comp, i);
                 d |= bit << i;
             }
 
             magnitude = Av1MotionVectorConstants.Class0Size << (mvClass + 2);
-            int fr = forceIntegerMv ? 3 : (useDv ? reader.ReadDisplacementVectorFraction(comp) : reader.ReadMotionVectorFraction(comp));
-            int hp = allowHighPrecisionMv ? (useDv ? reader.ReadDisplacementVectorHighPrecision(comp) : reader.ReadMotionVectorHighPrecision(comp)) : 1;
+            int fr = forceIntegerMv ? 3 : reader.ReadMotionVectorFraction(ctx, comp);
+            int hp = allowHighPrecisionMv ? reader.ReadMotionVectorHighPrecision(ctx, comp) : 1;
             magnitude += ((d << 3) | (fr << 1) | hp) + 1;
         }
 

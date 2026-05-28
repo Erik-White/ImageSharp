@@ -93,123 +93,74 @@ internal ref struct Av1SymbolDecoder
     }
 
     /// <summary>Spec 5.11.31: <c>mv_joint</c>.</summary>
-    public Av1MotionVectorJoint ReadMotionVectorJoint()
+    public Av1MotionVectorJoint ReadMotionVectorJoint(Av1MotionVectorContext ctx)
     {
         ref Av1SymbolReader r = ref this.reader;
-        return (Av1MotionVectorJoint)r.ReadSymbol(this.motionVectorJoint);
+        return (Av1MotionVectorJoint)r.ReadSymbol(ctx == Av1MotionVectorContext.IntraBlockCopy ? this.displacementVectorJoint : this.motionVectorJoint);
     }
 
     /// <summary>Spec 5.11.32: <c>mv_sign</c>.</summary>
-    public bool ReadMotionVectorSign(Av1MotionVectorComponent comp)
+    public bool ReadMotionVectorSign(Av1MotionVectorContext ctx, Av1MotionVectorComponent comp)
     {
         ref Av1SymbolReader r = ref this.reader;
-        return r.ReadSymbol(this.motionVectorSign[(int)comp]) > 0;
+        Av1Distribution[] table = ctx == Av1MotionVectorContext.IntraBlockCopy ? this.displacementVectorSign : this.motionVectorSign;
+        return r.ReadSymbol(table[(int)comp]) > 0;
     }
 
     /// <summary>Spec 5.11.32: <c>mv_class</c>.</summary>
-    public int ReadMotionVectorClass(Av1MotionVectorComponent comp)
+    public int ReadMotionVectorClass(Av1MotionVectorContext ctx, Av1MotionVectorComponent comp)
     {
         ref Av1SymbolReader r = ref this.reader;
-        return r.ReadSymbol(this.motionVectorClass[(int)comp]);
+        Av1Distribution[] table = ctx == Av1MotionVectorContext.IntraBlockCopy ? this.displacementVectorClass : this.motionVectorClass;
+        return r.ReadSymbol(table[(int)comp]);
     }
 
     /// <summary>Spec 5.11.32: <c>mv_class0_bit</c>.</summary>
-    public int ReadMotionVectorClass0Bit(Av1MotionVectorComponent comp)
+    public int ReadMotionVectorClass0Bit(Av1MotionVectorContext ctx, Av1MotionVectorComponent comp)
     {
         ref Av1SymbolReader r = ref this.reader;
-        return r.ReadSymbol(this.motionVectorClass0Bit[(int)comp]);
+        Av1Distribution[] table = ctx == Av1MotionVectorContext.IntraBlockCopy ? this.displacementVectorClass0Bit : this.motionVectorClass0Bit;
+        return r.ReadSymbol(table[(int)comp]);
     }
 
     /// <summary>Spec 5.11.32: <c>mv_class0_fr</c>.</summary>
-    public int ReadMotionVectorClass0Fraction(Av1MotionVectorComponent comp, int class0Bit)
+    public int ReadMotionVectorClass0Fraction(Av1MotionVectorContext ctx, Av1MotionVectorComponent comp, int class0Bit)
     {
         ref Av1SymbolReader r = ref this.reader;
-        return r.ReadSymbol(this.motionVectorClass0Fraction[(int)comp][class0Bit]);
+        Av1Distribution[][] table = ctx == Av1MotionVectorContext.IntraBlockCopy ? this.displacementVectorClass0Fraction : this.motionVectorClass0Fraction;
+        return r.ReadSymbol(table[(int)comp][class0Bit]);
     }
 
     /// <summary>Spec 5.11.32: <c>mv_fr</c>.</summary>
-    public int ReadMotionVectorFraction(Av1MotionVectorComponent comp)
+    public int ReadMotionVectorFraction(Av1MotionVectorContext ctx, Av1MotionVectorComponent comp)
     {
         ref Av1SymbolReader r = ref this.reader;
-        return r.ReadSymbol(this.motionVectorFraction[(int)comp]);
+        Av1Distribution[] table = ctx == Av1MotionVectorContext.IntraBlockCopy ? this.displacementVectorFraction : this.motionVectorFraction;
+        return r.ReadSymbol(table[(int)comp]);
     }
 
     /// <summary>Spec 5.11.32: <c>mv_class0_hp</c>.</summary>
-    public int ReadMotionVectorClass0HighPrecision(Av1MotionVectorComponent comp)
+    public int ReadMotionVectorClass0HighPrecision(Av1MotionVectorContext ctx, Av1MotionVectorComponent comp)
     {
         ref Av1SymbolReader r = ref this.reader;
-        return r.ReadSymbol(this.motionVectorClass0HighPrecision[(int)comp]);
+        Av1Distribution[] table = ctx == Av1MotionVectorContext.IntraBlockCopy ? this.displacementVectorClass0HighPrecision : this.motionVectorClass0HighPrecision;
+        return r.ReadSymbol(table[(int)comp]);
     }
 
     /// <summary>Spec 5.11.32: <c>mv_hp</c>.</summary>
-    public int ReadMotionVectorHighPrecision(Av1MotionVectorComponent comp)
+    public int ReadMotionVectorHighPrecision(Av1MotionVectorContext ctx, Av1MotionVectorComponent comp)
     {
         ref Av1SymbolReader r = ref this.reader;
-        return r.ReadSymbol(this.motionVectorHighPrecision[(int)comp]);
+        Av1Distribution[] table = ctx == Av1MotionVectorContext.IntraBlockCopy ? this.displacementVectorHighPrecision : this.motionVectorHighPrecision;
+        return r.ReadSymbol(table[(int)comp]);
     }
 
     /// <summary>Spec 5.11.32: <c>mv_bit</c>. Reads one offset bit at <paramref name="bitIndex"/> in [0, MV_OFFSET_BITS).</summary>
-    public int ReadMotionVectorBit(Av1MotionVectorComponent comp, int bitIndex)
+    public int ReadMotionVectorBit(Av1MotionVectorContext ctx, Av1MotionVectorComponent comp, int bitIndex)
     {
         ref Av1SymbolReader r = ref this.reader;
-        return r.ReadSymbol(this.motionVectorBit[(int)comp][bitIndex]);
-    }
-
-    // ReadDv* mirror the ReadMotionVector* methods but route through the IBC `ndvc`
-    // context. libaom keeps `nmvc` and `ndvc` as separate adaptive instances so IBC
-    // DV decode does not pollute inter-MV stats. See libaom decodemv.c:681.
-    public Av1MotionVectorJoint ReadDisplacementVectorJoint()
-    {
-        ref Av1SymbolReader r = ref this.reader;
-        return (Av1MotionVectorJoint)r.ReadSymbol(this.displacementVectorJoint);
-    }
-
-    public bool ReadDisplacementVectorSign(Av1MotionVectorComponent comp)
-    {
-        ref Av1SymbolReader r = ref this.reader;
-        return r.ReadSymbol(this.displacementVectorSign[(int)comp]) > 0;
-    }
-
-    public int ReadDisplacementVectorClass(Av1MotionVectorComponent comp)
-    {
-        ref Av1SymbolReader r = ref this.reader;
-        return r.ReadSymbol(this.displacementVectorClass[(int)comp]);
-    }
-
-    public int ReadDisplacementVectorClass0Bit(Av1MotionVectorComponent comp)
-    {
-        ref Av1SymbolReader r = ref this.reader;
-        return r.ReadSymbol(this.displacementVectorClass0Bit[(int)comp]);
-    }
-
-    public int ReadDisplacementVectorClass0Fraction(Av1MotionVectorComponent comp, int class0Bit)
-    {
-        ref Av1SymbolReader r = ref this.reader;
-        return r.ReadSymbol(this.displacementVectorClass0Fraction[(int)comp][class0Bit]);
-    }
-
-    public int ReadDisplacementVectorFraction(Av1MotionVectorComponent comp)
-    {
-        ref Av1SymbolReader r = ref this.reader;
-        return r.ReadSymbol(this.displacementVectorFraction[(int)comp]);
-    }
-
-    public int ReadDisplacementVectorClass0HighPrecision(Av1MotionVectorComponent comp)
-    {
-        ref Av1SymbolReader r = ref this.reader;
-        return r.ReadSymbol(this.displacementVectorClass0HighPrecision[(int)comp]);
-    }
-
-    public int ReadDisplacementVectorHighPrecision(Av1MotionVectorComponent comp)
-    {
-        ref Av1SymbolReader r = ref this.reader;
-        return r.ReadSymbol(this.displacementVectorHighPrecision[(int)comp]);
-    }
-
-    public int ReadDisplacementVectorBit(Av1MotionVectorComponent comp, int bitIndex)
-    {
-        ref Av1SymbolReader r = ref this.reader;
-        return r.ReadSymbol(this.displacementVectorBit[(int)comp][bitIndex]);
+        Av1Distribution[][] table = ctx == Av1MotionVectorContext.IntraBlockCopy ? this.displacementVectorBit : this.motionVectorBit;
+        return r.ReadSymbol(table[(int)comp][bitIndex]);
     }
 
     public Av1PartitionType ReadPartitionType(int context)

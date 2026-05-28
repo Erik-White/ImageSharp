@@ -4,9 +4,8 @@
 namespace SixLabors.ImageSharp.Formats.Heif.Av1.Tiling.MotionVector;
 
 /// <summary>
-/// 5.11.32. <c>read_mv_component</c> argument indicating which component of
-/// the motion vector is being read. The numeric values follow the spec
-/// convention (<c>comp = 0</c> for vertical, <c>comp = 1</c> for horizontal).
+/// 5.11.32. <c>read_mv_component</c> argument selecting which axis of the
+/// motion vector is being read. Numeric values match the spec's <c>comp</c>.
 /// </summary>
 internal enum Av1MotionVectorComponent
 {

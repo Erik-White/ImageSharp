@@ -77,121 +77,74 @@ internal class Av1SymbolEncoder : IDisposable
     }
 
     /// <summary>Spec 5.11.31: <c>mv_joint</c>.</summary>
-    public void WriteMotionVectorJoint(Av1MotionVectorJoint joint)
+    public void WriteMotionVectorJoint(Av1MotionVectorContext ctx, Av1MotionVectorJoint joint)
     {
         ref Av1SymbolWriter w = ref this.writer;
-        w.WriteSymbol((int)joint, this.motionVectorJoint);
+        w.WriteSymbol((int)joint, ctx == Av1MotionVectorContext.IntraBlockCopy ? this.displacementVectorJoint : this.motionVectorJoint);
     }
 
     /// <summary>Spec 5.11.32: <c>mv_sign</c>.</summary>
-    public void WriteMotionVectorSign(bool sign, Av1MotionVectorComponent comp)
+    public void WriteMotionVectorSign(Av1MotionVectorContext ctx, bool sign, Av1MotionVectorComponent comp)
     {
         ref Av1SymbolWriter w = ref this.writer;
-        w.WriteSymbol(sign, this.motionVectorSign[(int)comp]);
+        Av1Distribution[] table = ctx == Av1MotionVectorContext.IntraBlockCopy ? this.displacementVectorSign : this.motionVectorSign;
+        w.WriteSymbol(sign, table[(int)comp]);
     }
 
     /// <summary>Spec 5.11.32: <c>mv_class</c>.</summary>
-    public void WriteMotionVectorClass(int mvClass, Av1MotionVectorComponent comp)
+    public void WriteMotionVectorClass(Av1MotionVectorContext ctx, int mvClass, Av1MotionVectorComponent comp)
     {
         ref Av1SymbolWriter w = ref this.writer;
-        w.WriteSymbol(mvClass, this.motionVectorClass[(int)comp]);
+        Av1Distribution[] table = ctx == Av1MotionVectorContext.IntraBlockCopy ? this.displacementVectorClass : this.motionVectorClass;
+        w.WriteSymbol(mvClass, table[(int)comp]);
     }
 
     /// <summary>Spec 5.11.32: <c>mv_class0_bit</c>.</summary>
-    public void WriteMotionVectorClass0Bit(int bit, Av1MotionVectorComponent comp)
+    public void WriteMotionVectorClass0Bit(Av1MotionVectorContext ctx, int bit, Av1MotionVectorComponent comp)
     {
         ref Av1SymbolWriter w = ref this.writer;
-        w.WriteSymbol(bit, this.motionVectorClass0Bit[(int)comp]);
+        Av1Distribution[] table = ctx == Av1MotionVectorContext.IntraBlockCopy ? this.displacementVectorClass0Bit : this.motionVectorClass0Bit;
+        w.WriteSymbol(bit, table[(int)comp]);
     }
 
     /// <summary>Spec 5.11.32: <c>mv_class0_fr</c>.</summary>
-    public void WriteMotionVectorClass0Fraction(int fr, Av1MotionVectorComponent comp, int class0Bit)
+    public void WriteMotionVectorClass0Fraction(Av1MotionVectorContext ctx, int fr, Av1MotionVectorComponent comp, int class0Bit)
     {
         ref Av1SymbolWriter w = ref this.writer;
-        w.WriteSymbol(fr, this.motionVectorClass0Fraction[(int)comp][class0Bit]);
+        Av1Distribution[][] table = ctx == Av1MotionVectorContext.IntraBlockCopy ? this.displacementVectorClass0Fraction : this.motionVectorClass0Fraction;
+        w.WriteSymbol(fr, table[(int)comp][class0Bit]);
     }
 
     /// <summary>Spec 5.11.32: <c>mv_fr</c>.</summary>
-    public void WriteMotionVectorFraction(int fr, Av1MotionVectorComponent comp)
+    public void WriteMotionVectorFraction(Av1MotionVectorContext ctx, int fr, Av1MotionVectorComponent comp)
     {
         ref Av1SymbolWriter w = ref this.writer;
-        w.WriteSymbol(fr, this.motionVectorFraction[(int)comp]);
+        Av1Distribution[] table = ctx == Av1MotionVectorContext.IntraBlockCopy ? this.displacementVectorFraction : this.motionVectorFraction;
+        w.WriteSymbol(fr, table[(int)comp]);
     }
 
     /// <summary>Spec 5.11.32: <c>mv_class0_hp</c>.</summary>
-    public void WriteMotionVectorClass0HighPrecision(int hp, Av1MotionVectorComponent comp)
+    public void WriteMotionVectorClass0HighPrecision(Av1MotionVectorContext ctx, int hp, Av1MotionVectorComponent comp)
     {
         ref Av1SymbolWriter w = ref this.writer;
-        w.WriteSymbol(hp, this.motionVectorClass0HighPrecision[(int)comp]);
+        Av1Distribution[] table = ctx == Av1MotionVectorContext.IntraBlockCopy ? this.displacementVectorClass0HighPrecision : this.motionVectorClass0HighPrecision;
+        w.WriteSymbol(hp, table[(int)comp]);
     }
 
     /// <summary>Spec 5.11.32: <c>mv_hp</c>.</summary>
-    public void WriteMotionVectorHighPrecision(int hp, Av1MotionVectorComponent comp)
+    public void WriteMotionVectorHighPrecision(Av1MotionVectorContext ctx, int hp, Av1MotionVectorComponent comp)
     {
         ref Av1SymbolWriter w = ref this.writer;
-        w.WriteSymbol(hp, this.motionVectorHighPrecision[(int)comp]);
+        Av1Distribution[] table = ctx == Av1MotionVectorContext.IntraBlockCopy ? this.displacementVectorHighPrecision : this.motionVectorHighPrecision;
+        w.WriteSymbol(hp, table[(int)comp]);
     }
 
     /// <summary>Spec 5.11.32: <c>mv_bit</c> for offset bit <paramref name="bitIndex"/> in [0, MV_OFFSET_BITS).</summary>
-    public void WriteMotionVectorBit(int bit, Av1MotionVectorComponent comp, int bitIndex)
+    public void WriteMotionVectorBit(Av1MotionVectorContext ctx, int bit, Av1MotionVectorComponent comp, int bitIndex)
     {
         ref Av1SymbolWriter w = ref this.writer;
-        w.WriteSymbol(bit, this.motionVectorBit[(int)comp][bitIndex]);
-    }
-
-    // WriteDv* mirror WriteMotionVector* but route through the IBC `ndvc` context.
-    public void WriteDisplacementVectorJoint(Av1MotionVectorJoint joint)
-    {
-        ref Av1SymbolWriter w = ref this.writer;
-        w.WriteSymbol((int)joint, this.displacementVectorJoint);
-    }
-
-    public void WriteDisplacementVectorSign(bool sign, Av1MotionVectorComponent comp)
-    {
-        ref Av1SymbolWriter w = ref this.writer;
-        w.WriteSymbol(sign, this.displacementVectorSign[(int)comp]);
-    }
-
-    public void WriteDisplacementVectorClass(int mvClass, Av1MotionVectorComponent comp)
-    {
-        ref Av1SymbolWriter w = ref this.writer;
-        w.WriteSymbol(mvClass, this.displacementVectorClass[(int)comp]);
-    }
-
-    public void WriteDisplacementVectorClass0Bit(int bit, Av1MotionVectorComponent comp)
-    {
-        ref Av1SymbolWriter w = ref this.writer;
-        w.WriteSymbol(bit, this.displacementVectorClass0Bit[(int)comp]);
-    }
-
-    public void WriteDisplacementVectorClass0Fraction(int fr, Av1MotionVectorComponent comp, int class0Bit)
-    {
-        ref Av1SymbolWriter w = ref this.writer;
-        w.WriteSymbol(fr, this.displacementVectorClass0Fraction[(int)comp][class0Bit]);
-    }
-
-    public void WriteDisplacementVectorFraction(int fr, Av1MotionVectorComponent comp)
-    {
-        ref Av1SymbolWriter w = ref this.writer;
-        w.WriteSymbol(fr, this.displacementVectorFraction[(int)comp]);
-    }
-
-    public void WriteDisplacementVectorClass0HighPrecision(int hp, Av1MotionVectorComponent comp)
-    {
-        ref Av1SymbolWriter w = ref this.writer;
-        w.WriteSymbol(hp, this.displacementVectorClass0HighPrecision[(int)comp]);
-    }
-
-    public void WriteDisplacementVectorHighPrecision(int hp, Av1MotionVectorComponent comp)
-    {
-        ref Av1SymbolWriter w = ref this.writer;
-        w.WriteSymbol(hp, this.displacementVectorHighPrecision[(int)comp]);
-    }
-
-    public void WriteDisplacementVectorBit(int bit, Av1MotionVectorComponent comp, int bitIndex)
-    {
-        ref Av1SymbolWriter w = ref this.writer;
-        w.WriteSymbol(bit, this.displacementVectorBit[(int)comp][bitIndex]);
+        Av1Distribution[][] table = ctx == Av1MotionVectorContext.IntraBlockCopy ? this.displacementVectorBit : this.motionVectorBit;
+        w.WriteSymbol(bit, table[(int)comp][bitIndex]);
     }
 
     public void WritePartitionType(Av1PartitionType partitionType, int context)

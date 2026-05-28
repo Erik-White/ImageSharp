@@ -4,18 +4,16 @@
 namespace SixLabors.ImageSharp.Formats.Heif.Av1.Tiling.MotionVector;
 
 /// <summary>
-/// Mirrors libaom's <c>av1_is_dv_valid</c> (mvref_common.h). Verifies that an
-/// intra-block-copy displacement vector references pixels that are inside the
-/// current tile, are integer-pel only, lie within an already-decoded
-/// superblock, and respect the 256-pixel reconstruction-pipeline delay and
-/// the wavefront constraint. Throws <see cref="InvalidImageContentException"/>
-/// when any check fails — that is the same outcome libaom signals via its
-/// "return 0" rejection of the bitstream.
+/// Spec 6.10.25 (<c>is_mv_valid</c>) — the IBC subset. Verifies that an
+/// intra-block-copy displacement vector is integer-pel, that the source
+/// rectangle lies inside the current tile, and that the source respects the
+/// reconstruction-pipeline delay and the wavefront constraint. Throws
+/// <see cref="InvalidImageContentException"/> on any failure, mirroring the
+/// spec's "return 0" rejection.
 /// </summary>
 internal static class Av1IntraBlockCopyValidator
 {
     private const int ScalePixelToMv = 8;
-    private const int IntraBlockCopyDelaySuperblocks64 = Av1MotionVectorConstants.IntraBlockCopyDelaySuperblocks64;
 
     public static void Validate(
         Av1MotionVector dv,
@@ -28,8 +26,8 @@ internal static class Av1IntraBlockCopyValidator
         bool subsamplingX,
         bool subsamplingY)
     {
-        // Spec requires integer-pel for IBC; force_integer_mv masks fractional bits at decode,
-        // but corrupt streams could still set them via a malformed predictor sum.
+        // 6.10.25: (Mv[0][0] & 7) || (Mv[0][1] & 7) ⇒ return 0. force_integer_mv masks fractional
+        // bits at decode, but a corrupt stream could still set them via a malformed predictor sum.
         if (((dv.Row | dv.Col) & (ScalePixelToMv - 1)) != 0)
         {
             throw new InvalidImageContentException("IBC displacement vector is not integer-pel.");
@@ -56,8 +54,9 @@ internal static class Av1IntraBlockCopyValidator
                 $"IBC source region escapes the current tile. dv=({dv.Row},{dv.Col}) mi=({modeInfoRow},{modeInfoColumn}) bsize={blockSize} blockTL=({blockTopEdge},{blockLeftEdge}) src=({srcTopEdge}..{srcBottomEdge},{srcLeftEdge}..{srcRightEdge}) tile=({tileTopEdge}..{tileBottomEdge},{tileLeftEdge}..{tileRightEdge})");
         }
 
-        // Sub-8x8 chroma blocks must keep at least 4 pixels of margin from the tile edge so
-        // that the subsampled chroma read does not cross the tile boundary.
+        // 6.10.25: under sub-8 chroma the spec subtracts 4 pixels from srcLeftEdge / srcTopEdge
+        // before the tile-bounds test. Equivalently, require an extra 4-pixel margin from the
+        // tile edge. (The +32 below is 4 pixels expressed in 1/8-pel units.)
         if (hasChroma)
         {
             if (blockWidth < 8 && subsamplingX && srcLeftEdge < tileLeftEdge + (4 * ScalePixelToMv))
@@ -71,9 +70,8 @@ internal static class Av1IntraBlockCopyValidator
             }
         }
 
-        // Wavefront + reconstruction-delay check, in 64-pixel units. The source's bottom-right
-        // must lie inside an already-decoded SB64, accounting for a 4-SB64 reconstruction
-        // delay and (for 128x128 SBs) an extra-row gradient offset.
+        // 6.10.25: srcSb64 / activeSb64 reconstruction-delay test. The source's bottom-right
+        // must lie at least INTRABC_DELAY_SB64 SB64s before the active block in raster order.
         int superblockMib = 1 << superblockModeInfoSizeLog2;
         int superblockSizePixels = superblockMib << Av1Constants.ModeInfoSizeLog2;
         int activeSbRow = modeInfoRow >> superblockModeInfoSizeLog2;
@@ -83,15 +81,16 @@ internal static class Av1IntraBlockCopyValidator
         int totalSb64PerRow = ((tileInfo.ModeInfoColumnEnd - tileInfo.ModeInfoColumnStart - 1) >> 4) + 1;
         int activeSb64 = (activeSbRow * totalSb64PerRow) + activeSb64Col;
         int srcSb64 = (srcSbRow * totalSb64PerRow) + srcSb64Col;
-        if (srcSb64 >= activeSb64 - IntraBlockCopyDelaySuperblocks64)
+        if (srcSb64 >= activeSb64 - Av1MotionVectorConstants.IntraBlockCopyDelaySuperblocks64)
         {
             throw new InvalidImageContentException("IBC source overlaps the in-flight reconstruction window.");
         }
 
-        int gradient = 1 + IntraBlockCopyDelaySuperblocks64 + (superblockSizePixels > 64 ? 1 : 0);
+        // 6.10.25: wavefront constraint. gradient = 1 + INTRABC_DELAY_SB64 + use_128x128_superblock.
+        int gradient = 1 + Av1MotionVectorConstants.IntraBlockCopyDelaySuperblocks64 + (superblockSizePixels > 64 ? 1 : 0);
         int wavefrontOffset = gradient * (activeSbRow - srcSbRow);
         if (srcSbRow > activeSbRow ||
-            srcSb64Col >= activeSb64Col - IntraBlockCopyDelaySuperblocks64 + wavefrontOffset)
+            srcSb64Col >= activeSb64Col - Av1MotionVectorConstants.IntraBlockCopyDelaySuperblocks64 + wavefrontOffset)
         {
             throw new InvalidImageContentException("IBC source violates the wavefront constraint.");
         }

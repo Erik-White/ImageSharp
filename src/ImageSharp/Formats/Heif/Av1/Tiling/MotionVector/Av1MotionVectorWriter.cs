@@ -14,29 +14,22 @@ internal static class Av1MotionVectorWriter
 {
     public static void WriteMotionVectorDifference(
         Av1SymbolEncoder encoder,
+        Av1MotionVectorContext ctx,
         Av1MotionVector difference,
         bool forceIntegerMv,
-        bool allowHighPrecisionMv,
-        bool useDisplacementVectorContext = false)
+        bool allowHighPrecisionMv)
     {
         Av1MotionVectorJoint joint = ComputeJoint(difference);
-        if (useDisplacementVectorContext)
-        {
-            encoder.WriteDisplacementVectorJoint(joint);
-        }
-        else
-        {
-            encoder.WriteMotionVectorJoint(joint);
-        }
+        encoder.WriteMotionVectorJoint(ctx, joint);
 
         if (joint is Av1MotionVectorJoint.VerticalNonZero or Av1MotionVectorJoint.HorizontalAndVerticalNonZero)
         {
-            WriteComponent(encoder, difference.Row, Av1MotionVectorComponent.Vertical, forceIntegerMv, allowHighPrecisionMv, useDisplacementVectorContext);
+            WriteComponent(encoder, ctx, difference.Row, Av1MotionVectorComponent.Vertical, forceIntegerMv, allowHighPrecisionMv);
         }
 
         if (joint is Av1MotionVectorJoint.HorizontalNonZero or Av1MotionVectorJoint.HorizontalAndVerticalNonZero)
         {
-            WriteComponent(encoder, difference.Col, Av1MotionVectorComponent.Horizontal, forceIntegerMv, allowHighPrecisionMv, useDisplacementVectorContext);
+            WriteComponent(encoder, ctx, difference.Col, Av1MotionVectorComponent.Horizontal, forceIntegerMv, allowHighPrecisionMv);
         }
     }
 
@@ -55,21 +48,14 @@ internal static class Av1MotionVectorWriter
 
     private static void WriteComponent(
         Av1SymbolEncoder encoder,
+        Av1MotionVectorContext ctx,
         int signedValue,
         Av1MotionVectorComponent comp,
         bool forceIntegerMv,
-        bool allowHighPrecisionMv,
-        bool useDv)
+        bool allowHighPrecisionMv)
     {
         bool sign = signedValue < 0;
-        if (useDv)
-        {
-            encoder.WriteDisplacementVectorSign(sign, comp);
-        }
-        else
-        {
-            encoder.WriteMotionVectorSign(sign, comp);
-        }
+        encoder.WriteMotionVectorSign(ctx, sign, comp);
 
         int magnitude = sign ? -signedValue : signedValue;
 
@@ -78,51 +64,23 @@ internal static class Av1MotionVectorWriter
         // first deriving the class from the magnitude before the +1 offset.
         int magnitudeMinusOne = magnitude - 1;
         int mvClass = ClassifyMagnitude(magnitudeMinusOne);
-        if (useDv)
-        {
-            encoder.WriteDisplacementVectorClass(mvClass, comp);
-        }
-        else
-        {
-            encoder.WriteMotionVectorClass(mvClass, comp);
-        }
+        encoder.WriteMotionVectorClass(ctx, mvClass, comp);
 
         if (mvClass == 0)
         {
             int class0Bit = (magnitudeMinusOne >> 3) & 1;
             int fr = (magnitudeMinusOne >> 1) & 3;
             int hp = magnitudeMinusOne & 1;
-            if (useDv)
-            {
-                encoder.WriteDisplacementVectorClass0Bit(class0Bit, comp);
-            }
-            else
-            {
-                encoder.WriteMotionVectorClass0Bit(class0Bit, comp);
-            }
+            encoder.WriteMotionVectorClass0Bit(ctx, class0Bit, comp);
 
             if (!forceIntegerMv)
             {
-                if (useDv)
-                {
-                    encoder.WriteDisplacementVectorClass0Fraction(fr, comp, class0Bit);
-                }
-                else
-                {
-                    encoder.WriteMotionVectorClass0Fraction(fr, comp, class0Bit);
-                }
+                encoder.WriteMotionVectorClass0Fraction(ctx, fr, comp, class0Bit);
             }
 
             if (allowHighPrecisionMv)
             {
-                if (useDv)
-                {
-                    encoder.WriteDisplacementVectorClass0HighPrecision(hp, comp);
-                }
-                else
-                {
-                    encoder.WriteMotionVectorClass0HighPrecision(hp, comp);
-                }
+                encoder.WriteMotionVectorClass0HighPrecision(ctx, hp, comp);
             }
         }
         else
@@ -134,38 +92,17 @@ internal static class Av1MotionVectorWriter
             for (int i = 0; i < mvClass; i++)
             {
                 int bit = (d >> i) & 1;
-                if (useDv)
-                {
-                    encoder.WriteDisplacementVectorBit(bit, comp, i);
-                }
-                else
-                {
-                    encoder.WriteMotionVectorBit(bit, comp, i);
-                }
+                encoder.WriteMotionVectorBit(ctx, bit, comp, i);
             }
 
             if (!forceIntegerMv)
             {
-                if (useDv)
-                {
-                    encoder.WriteDisplacementVectorFraction(fr, comp);
-                }
-                else
-                {
-                    encoder.WriteMotionVectorFraction(fr, comp);
-                }
+                encoder.WriteMotionVectorFraction(ctx, fr, comp);
             }
 
             if (allowHighPrecisionMv)
             {
-                if (useDv)
-                {
-                    encoder.WriteDisplacementVectorHighPrecision(hp, comp);
-                }
-                else
-                {
-                    encoder.WriteMotionVectorHighPrecision(hp, comp);
-                }
+                encoder.WriteMotionVectorHighPrecision(ctx, hp, comp);
             }
         }
     }

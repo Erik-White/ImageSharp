@@ -590,12 +590,12 @@ public class Av1EntropyTests
         Av1SymbolEncoder encoder = new(configuration, 100 / 8, BaseQIndex);
         Av1MotionVector mv = new(row, col);
 
-        Av1MotionVectorWriter.WriteMotionVectorDifference(encoder, mv, forceIntegerMv: true, allowHighPrecisionMv: false, useDisplacementVectorContext: true);
+        Av1MotionVectorWriter.WriteMotionVectorDifference(encoder, Av1MotionVectorContext.IntraBlockCopy, mv, forceIntegerMv: true, allowHighPrecisionMv: false);
 
         using IMemoryOwner<byte> encoded = encoder.Exit();
         Av1SymbolDecoder decoder = new(Configuration.Default, encoded.GetSpan(), BaseQIndex);
         Av1MotionVector roundtrip = Av1MotionVectorReader.ReadMotionVectorDifference(
-            ref decoder, forceIntegerMv: true, allowHighPrecisionMv: false, useDisplacementVectorContext: true);
+            ref decoder, Av1MotionVectorContext.IntraBlockCopy, forceIntegerMv: true, allowHighPrecisionMv: false);
 
         Assert.Equal(mv, roundtrip);
     }
