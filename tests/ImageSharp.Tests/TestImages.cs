@@ -1241,6 +1241,15 @@ public static class TestImages
         // Extremely small image, 4x4 pixels with a single solid color.
         public const string Orange4x4 = "Heif/Orange4x4.avif";
 
+        // 4:4:4 screen-content AVIFs from av1-avif test set; some use IBC and palette.
+        public const string ScreenTile256Avif = "Heif/screen-tile-256.avif";
+        public const string ScreenTileNopltAvif = "Heif/screen-tile-noplt.avif";
+        public const string ScreenText512Q30Avif = "Heif/screen-text-512-q30.avif";
+        public const string ScreenText512Q60Avif = "Heif/screen-text-512-q60.avif";
+        public const string ScreenTextNopltQ30Avif = "Heif/screen-text-noplt-q30.avif";
+        public const string ScreenTextNopltQ60Avif = "Heif/screen-text-noplt-q60.avif";
+        public const string ScreenBannerIbcAvif = "Heif/screen-banner-ibc.avif";
+
         // AOMedia conformance test vector av1-1-b8-16-intra_only-intrabc-extreme-dv.ivf:
         // intra-only stream constructed by AOMedia specifically to exercise IBC with
         // displacement vectors at the spec extremes. IVF container, not AVIF.
@@ -1268,7 +1277,13 @@ public static class TestImages
         // refuses --i420 on these so the YUV golden compare path doesn't apply yet;
         // the decode-without-throwing smoke tests still cover them.
         public const string ScreenTile256Ivf = "Heif/screen-tile-256.ivf";
+        public const string ScreenTileNopltIvf = "Heif/screen-tile-noplt.ivf";
         public const string ScreenText512Q30Ivf = "Heif/screen-text-512-q30.ivf";
+        public const string ScreenText512Q60Ivf = "Heif/screen-text-512-q60.ivf";
+        public const string ScreenTextNopltQ30Ivf = "Heif/screen-text-noplt-q30.ivf";
+        public const string ScreenTextNopltQ60Ivf = "Heif/screen-text-noplt-q60.ivf";
+        public const string ScreenBannerIbcIvf = "Heif/screen-banner-ibc.ivf";
+        public const string XnConvertIvf = "Heif/jpeg444_xnconvert.ivf";
     }
 
     public static class Ico

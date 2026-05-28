@@ -14,6 +14,13 @@ public class AvifDecoderTests
     [InlineData(TestImages.Heif.Orange4x4)]
     [InlineData(TestImages.Heif.IrvineAvif)]
     [InlineData(TestImages.Heif.XnConvert)]
+    [InlineData(TestImages.Heif.ScreenTile256Avif)]
+    [InlineData(TestImages.Heif.ScreenTileNopltAvif)]
+    [InlineData(TestImages.Heif.ScreenText512Q30Avif)]
+    [InlineData(TestImages.Heif.ScreenText512Q60Avif)]
+    [InlineData(TestImages.Heif.ScreenTextNopltQ30Avif)]
+    [InlineData(TestImages.Heif.ScreenTextNopltQ60Avif)]
+    [InlineData(TestImages.Heif.ScreenBannerIbcAvif)]
     public void Identify_AvifFixturesAsAv1(string imagePath)
     {
         TestFile testFile = TestFile.Create(imagePath);
