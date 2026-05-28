@@ -70,6 +70,69 @@ internal ref struct Av1SymbolReader
     }
 
     /// <summary>
+    /// libaom <c>read_primitive_quniform</c>: a quasi-uniform value in [0, n-1]. Used by
+    /// the loop-restoration filter parsers as the leaf of the subexp encoding chain.
+    /// </summary>
+    public int ReadPrimitiveQuniform(int n, [CallerMemberName] string caller = "")
+    {
+        if (n <= 1)
+        {
+            return 0;
+        }
+
+        int l = Av1Math.Log2(n) + 1;
+        int m = (1 << l) - n;
+        int v = this.ReadLiteral(l - 1, caller);
+        if (v < m)
+        {
+            return v;
+        }
+
+        return ((v << 1) - m) + this.ReadLiteral(1, caller);
+    }
+
+    /// <summary>
+    /// libaom <c>read_primitive_subexpfin</c>: finite subexponential code over [0, n-1]
+    /// with parameter k. Reads escape bits (each "1" multiplies the range by 2) until
+    /// either the remaining range fits in 3*step or the next escape bit is 0; emits a
+    /// fixed-width literal for the residue.
+    /// </summary>
+    public int ReadPrimitiveSubexpFin(int n, int k, [CallerMemberName] string caller = "")
+    {
+        int i = 0;
+        int mk = 0;
+        while (true)
+        {
+            int b = i != 0 ? k + i - 1 : k;
+            int a = 1 << b;
+
+            if (n <= mk + (3 * a))
+            {
+                return this.ReadPrimitiveQuniform(n - mk, caller) + mk;
+            }
+
+            if (this.ReadLiteral(1, caller) == 0)
+            {
+                return this.ReadLiteral(b, caller) + mk;
+            }
+
+            i++;
+            mk += a;
+        }
+    }
+
+    /// <summary>
+    /// libaom <c>aom_read_primitive_refsubexpfin</c>: subexp code recentered around a
+    /// reference value <paramref name="reference"/>, used so encoders can express deltas
+    /// from the previous unit's filter taps with fewer bits.
+    /// </summary>
+    public int ReadPrimitiveReferenceSubexpFin(int n, int k, int reference, [CallerMemberName] string caller = "")
+    {
+        int v = this.ReadPrimitiveSubexpFin(n, k, caller);
+        return Av1RecenterMath.InverseRecenterFiniteNonNegative(n, reference, v);
+    }
+
+    /// <summary>
     /// Decode a single binary value.
     /// </summary>
     /// <param name="frequency">The probability that the bit is one, scaled by 32768.</param>

@@ -152,7 +152,7 @@ public class Av1FrameDecodeTests
     /// yet. Reference YUV is in place so the assertion can light up once the missing
     /// pieces land.
     /// </summary>
-    [Fact(Skip = "Av1TileReader.ReadLoopRestoration is not implemented; this fixture has loop_restoration enabled.")]
+    [Fact(Skip = "Loop-restoration parser is implemented but the Wiener/SGR filter apply step is not. Decoder advances to a complete frame but Y mean_abs ~53 vs libaom because the filters aren't applied.")]
     public void IrvineCa_Frame0_MatchesLibaomReference()
     {
         AssertLibaomYuv420Match(TestImages.Heif.IrvineCaIvf, "Heif/Av1/Irvine_CA.frame0.yuv");
@@ -170,7 +170,7 @@ public class Av1FrameDecodeTests
     [InlineData(TestImages.Heif.IbcClean256Ivf)]
     [InlineData(TestImages.Heif.MonoIbc256Ivf)]
     [InlineData(TestImages.Heif.ScreenText512Q30Ivf)]
-    [InlineData(TestImages.Heif.ScreenTile256Ivf, Skip = "IndexOutOfRangeException in Av1TileReader.UpdateTransformInfo. FirstTransformLocation array sizing bug for this fixture's partition shape.")]
+    [InlineData(TestImages.Heif.ScreenTile256Ivf, Skip = "IndexOutOfRangeException in Av1TileReader.UpdateTransformInfo for this 4:4:4 fixture; not yet diagnosed.")]
     public void DecodeWithoutThrowing(string ivfFixture)
     {
         byte[] obus = LoadIvfFirstFrame(ivfFixture);

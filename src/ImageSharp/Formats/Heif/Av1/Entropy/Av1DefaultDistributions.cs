@@ -95,6 +95,19 @@ internal static class Av1DefaultDistributions
 
     public static Av1Distribution IntraBlockCopy => new(30531);
 
+    /// <summary>
+    /// Gets the switchable loop-restoration unit type CDF. libaom <c>default_switchable_restore_cdf</c>
+    /// AOM_CDF3(9413, 22581). Maps symbol values 0/1/2 to RESTORE_NONE/RESTORE_WIENER/
+    /// RESTORE_SGRPROJ.
+    /// </summary>
+    public static Av1Distribution SwitchableRestore => new(9413, 22581);
+
+    /// <summary>Gets the libaom <c>default_wiener_restore_cdf</c> AOM_CDF2(11570).</summary>
+    public static Av1Distribution WienerRestore => new(11570);
+
+    /// <summary>Gets the libaom <c>default_sgrproj_restore_cdf</c> AOM_CDF2(16855).</summary>
+    public static Av1Distribution SgrProjRestore => new(16855);
+
     /// <summary>Gets the motion-vector joint distribution. Spec: Default_Mv_Joint_Cdf, MV_JOINTS symbols.</summary>
     public static Av1Distribution MotionVectorJoint => new(4096, 11264, 19328);
 

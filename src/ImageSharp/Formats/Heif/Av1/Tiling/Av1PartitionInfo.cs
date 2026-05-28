@@ -14,7 +14,6 @@ internal class Av1PartitionInfo
         this.SuperblockInfo = superblockInfo;
         this.IsChroma = isChroma;
         this.Type = partitionType;
-        this.CdefStrength = [];
         this.ReferenceFrame = [-1, -1];
         this.WidthInPixels = new int[3];
         this.HeightInPixels = new int[3];
@@ -69,7 +68,12 @@ internal class Av1PartitionInfo
 
     public Av1BlockModeInfo? LeftModeInfoForChroma { get; set; }
 
-    public int[] CdefStrength { get; set; }
+    /// <summary>
+    /// Gets the CDEF strength slots for the parent superblock. The backing storage lives
+    /// on <see cref="SuperblockInfo"/> so multiple TUs in the same superblock share state
+    /// via <see cref="Av1FrameInfo.GetCdefStrength"/>.
+    /// </summary>
+    public Span<int> CdefStrength => this.SuperblockInfo.CdefStrength;
 
     public int[] ReferenceFrame { get; set; }
 

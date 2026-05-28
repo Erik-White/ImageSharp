@@ -62,6 +62,9 @@ internal ref struct Av1SymbolDecoder
     private readonly Av1Distribution[] displacementVectorClass0HighPrecision = Av1DefaultDistributions.DisplacementVectorClass0HighPrecision;
     private readonly Av1Distribution[] displacementVectorHighPrecision = Av1DefaultDistributions.DisplacementVectorHighPrecision;
     private readonly Av1Distribution[][] displacementVectorBit = Av1DefaultDistributions.DisplacementVectorBit;
+    private readonly Av1Distribution switchableRestore = Av1DefaultDistributions.SwitchableRestore;
+    private readonly Av1Distribution wienerRestore = Av1DefaultDistributions.WienerRestore;
+    private readonly Av1Distribution sgrProjRestore = Av1DefaultDistributions.SgrProjRestore;
     private readonly Configuration configuration;
     private Av1SymbolReader reader;
     private readonly int baseQIndex;
@@ -90,6 +93,69 @@ internal ref struct Av1SymbolDecoder
     {
         ref Av1SymbolReader r = ref this.reader;
         return r.ReadSymbol(this.tileIntraBlockCopy) > 0;
+    }
+
+    /// <summary>
+    /// Spec 5.11.4 (<c>read_lr_unit</c>): selects the per-unit restoration filter when the
+    /// frame-level type is <see cref="OpenBitstreamUnit.ObuRestorationType.Switchable"/>.
+    /// Returns the symbol mapped to <see cref="OpenBitstreamUnit.ObuRestorationType"/>.
+    /// </summary>
+    public OpenBitstreamUnit.ObuRestorationType ReadSwitchableRestoration()
+    {
+        ref Av1SymbolReader r = ref this.reader;
+        int symbol = r.ReadSymbol(this.switchableRestore);
+        return symbol switch
+        {
+            0 => OpenBitstreamUnit.ObuRestorationType.None,
+            1 => OpenBitstreamUnit.ObuRestorationType.Weiner,
+            _ => OpenBitstreamUnit.ObuRestorationType.SgrProj,
+        };
+    }
+
+    /// <summary>
+    /// Spec 5.11.4: 1-bit flag deciding whether the unit applies the Wiener filter when
+    /// the frame-level type is <see cref="OpenBitstreamUnit.ObuRestorationType.Weiner"/>.
+    /// </summary>
+    public bool ReadUsesWienerRestoration()
+    {
+        ref Av1SymbolReader r = ref this.reader;
+        return r.ReadSymbol(this.wienerRestore) > 0;
+    }
+
+    /// <summary>
+    /// Spec 5.11.4: 1-bit flag deciding whether the unit applies the self-guided filter
+    /// when the frame-level type is
+    /// <see cref="OpenBitstreamUnit.ObuRestorationType.SgrProj"/>.
+    /// </summary>
+    public bool ReadUsesSgrProjRestoration()
+    {
+        ref Av1SymbolReader r = ref this.reader;
+        return r.ReadSymbol(this.sgrProjRestore) > 0;
+    }
+
+    /// <summary>Read a single bit literal — used by the loop-restoration filter parameter parsers.</summary>
+    public int ReadLiteralBit()
+    {
+        ref Av1SymbolReader r = ref this.reader;
+        return r.ReadLiteral(1);
+    }
+
+    /// <summary>Read a multi-bit literal — used by the loop-restoration filter parameter parsers.</summary>
+    public int ReadLiteralBits(int bitCount)
+    {
+        ref Av1SymbolReader r = ref this.reader;
+        return r.ReadLiteral(bitCount);
+    }
+
+    /// <summary>
+    /// Read a recentered subexponential value in [0, n-1] referenced against
+    /// <paramref name="reference"/>. Used for Wiener tap deltas and the SgrProj
+    /// projection coefficient.
+    /// </summary>
+    public int ReadPrimitiveReferenceSubexpFin(int n, int k, int reference)
+    {
+        ref Av1SymbolReader r = ref this.reader;
+        return r.ReadPrimitiveReferenceSubexpFin(n, k, reference);
     }
 
     /// <summary>Spec 5.11.31: <c>mv_joint</c>.</summary>

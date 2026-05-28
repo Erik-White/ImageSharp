@@ -4,6 +4,7 @@
 using System.Runtime.CompilerServices;
 using SixLabors.ImageSharp.Formats.Heif.Av1;
 using SixLabors.ImageSharp.Formats.Heif.Av1.Entropy;
+using SixLabors.ImageSharp.Formats.Heif.Av1.LoopRestoration;
 using SixLabors.ImageSharp.Formats.Heif.Av1.OpenBitstreamUnit;
 using SixLabors.ImageSharp.Formats.Heif.Av1.Pipeline;
 using SixLabors.ImageSharp.Formats.Heif.Av1.Prediction;
@@ -27,6 +28,8 @@ internal class Av1TileReader : IAv1TileReader
 
     private int[][] referenceSgrXqd = [];
     private int[][][] referenceLrWiener = [];
+    private LoopRestoration.Av1WienerInfo[] tileReferenceWiener = [];
+    private LoopRestoration.Av1SgrProjInfo[] tileReferenceSgrProj = [];
     private readonly Av1ParseAboveNeighbor4x4Context aboveNeighborContext;
     private readonly Av1ParseLeftNeighbor4x4Context leftNeighborContext;
     private int currentQuantizerIndex;
@@ -93,6 +96,8 @@ internal class Av1TileReader : IAv1TileReader
         // Default initialization of Wiener and SGR Filter.
         this.referenceSgrXqd = new int[planesCount][];
         this.referenceLrWiener = new int[planesCount][][];
+        this.tileReferenceWiener = new LoopRestoration.Av1WienerInfo[planesCount];
+        this.tileReferenceSgrProj = new LoopRestoration.Av1SgrProjInfo[planesCount];
         for (int plane = 0; plane < planesCount; plane++)
         {
             this.referenceSgrXqd[plane] = new int[2];
@@ -103,6 +108,26 @@ internal class Av1TileReader : IAv1TileReader
                 this.referenceLrWiener[plane][pass] = new int[Av1Constants.WienerCoefficientCount];
                 Array.Copy(WienerTapsMid, this.referenceLrWiener[plane][pass], WienerTapsMid.Length);
             }
+
+            // libaom's per-tile Wiener reference is the centred 7-tap filter (WIENER_FILT_*_MIDV).
+            this.tileReferenceWiener[plane] = new LoopRestoration.Av1WienerInfo();
+            int[] mid = WienerTapsMid;
+            int[] vfilt = this.tileReferenceWiener[plane].VerticalFilter;
+            int[] hfilt = this.tileReferenceWiener[plane].HorizontalFilter;
+            for (int i = 0; i < 3; i++)
+            {
+                vfilt[i] = mid[i];
+                vfilt[6 - i] = mid[i];
+                hfilt[i] = mid[i];
+                hfilt[6 - i] = mid[i];
+            }
+
+            vfilt[3] = Av1RestorationConstants.WienerFilterStep - (2 * (mid[0] + mid[1] + mid[2]));
+            hfilt[3] = vfilt[3];
+
+            this.tileReferenceSgrProj[plane] = new LoopRestoration.Av1SgrProjInfo();
+            this.tileReferenceSgrProj[plane].Xqd[0] = SgrprojXqdMid[0];
+            this.tileReferenceSgrProj[plane].Xqd[1] = SgrprojXqdMid[1];
         }
 
         Av1TileInfo tileInfo = new(tileRowIndex, tileColumnIndex, this.FrameHeader);
@@ -126,7 +151,7 @@ internal class Av1TileReader : IAv1TileReader
                 this.coefficientIndex[0] = 0;
                 this.coefficientIndex[1] = 0;
                 this.coefficientIndex[2] = 0;
-                this.ReadLoopRestoration(modeInfoPosition, superBlockSize);
+                this.ReadLoopRestoration(ref reader, modeInfoPosition, superBlockSize);
                 this.ParsePartition(ref reader, modeInfoPosition, superBlockSize, superblockInfo, tileInfo);
             }
         }
@@ -135,15 +160,78 @@ internal class Av1TileReader : IAv1TileReader
     private void ClearLoopFilterDelta()
         => this.FrameInfo.ClearDeltaLoopFilter();
 
-    private void ReadLoopRestoration(Point modeInfoLocation, Av1BlockSize superBlockSize)
+    /// <summary>
+    /// Spec 5.11.4 (<c>read_lr</c>): per-superblock loop-restoration unit syntax. Walks
+    /// the grid of restoration units that have their top-left corner inside the current
+    /// superblock and reads the per-unit filter selection plus (for non-None types) the
+    /// filter parameters via <see cref="LoopRestoration.Av1LoopRestorationReader"/>.
+    /// Filter application at frame decode time is not yet implemented; encoded params
+    /// are parsed but discarded so the bitstream advances without throwing.
+    /// </summary>
+    private void ReadLoopRestoration(ref Av1SymbolDecoder reader, Point modeInfoLocation, Av1BlockSize superBlockSize)
     {
+        ObuLoopRestorationParameters lrParameters = this.FrameHeader.LoopRestorationParameters;
+        if (!lrParameters.UsesLoopRestoration)
+        {
+            return;
+        }
+
         int planesCount = this.SequenceHeader.ColorConfig.PlaneCount;
+        bool subX = this.SequenceHeader.ColorConfig.SubSamplingX;
+        bool subY = this.SequenceHeader.ColorConfig.SubSamplingY;
+
+        // Convert mi-unit position to luma pixel position.
+        int sbX = modeInfoLocation.X << Av1Constants.ModeInfoSizeLog2;
+        int sbY = modeInfoLocation.Y << Av1Constants.ModeInfoSizeLog2;
+        int sbWidth = superBlockSize.GetWidth();
+        int sbHeight = superBlockSize.GetHeight();
+
+        // Single discardable unit info; the apply step (when implemented) will need a
+        // per-unit-grid array, but for parse-only we can reuse one slot.
+        LoopRestoration.Av1RestorationUnitInfo scratchUnit = new();
+
         for (int plane = 0; plane < planesCount; plane++)
         {
-            if (this.FrameHeader.LoopRestorationParameters.Items[plane].Type != ObuRestorationType.None)
+            ObuRestorationType frameType = lrParameters.Items[plane].Type;
+            if (frameType == ObuRestorationType.None)
             {
-                // TODO: Implement.
-                throw new NotImplementedException("No loop restoration filter support.");
+                continue;
+            }
+
+            int planeUnitSize = lrParameters.Items[plane].Size;
+            int planeSubX = plane > 0 && subX ? 1 : 0;
+            int planeSubY = plane > 0 && subY ? 1 : 0;
+
+            int planeSbX = sbX >> planeSubX;
+            int planeSbY = sbY >> planeSubY;
+            int planeSbWidth = sbWidth >> planeSubX;
+            int planeSbHeight = sbHeight >> planeSubY;
+            int planeWidth = (this.FrameHeader.FrameSize.FrameWidth + ((1 << planeSubX) - 1)) >> planeSubX;
+            int planeHeight = (this.FrameHeader.FrameSize.FrameHeight + ((1 << planeSubY) - 1)) >> planeSubY;
+
+            int horzUnits = Math.Max(1, (planeWidth + (planeUnitSize >> 1)) / planeUnitSize);
+            int vertUnits = Math.Max(1, (planeHeight + (planeUnitSize >> 1)) / planeUnitSize);
+
+            int rcol0 = (planeSbX + planeUnitSize - 1) / planeUnitSize;
+            int rrow0 = (planeSbY + planeUnitSize - 1) / planeUnitSize;
+            int rcol1 = Math.Min((planeSbX + planeSbWidth + planeUnitSize - 1) / planeUnitSize, horzUnits);
+            int rrow1 = Math.Min((planeSbY + planeSbHeight + planeUnitSize - 1) / planeUnitSize, vertUnits);
+
+            // The first parsed-unit in a frame-row is keyed off planeSbX==0 in libaom; we
+            // approximate with rcol0 == 0. Otherwise we fall back to the previous unit's
+            // filter as the reference, which is what the per-tile reference state tracks.
+            for (int rrow = rrow0; rrow < rrow1; rrow++)
+            {
+                for (int rcol = rcol0; rcol < rcol1; rcol++)
+                {
+                    LoopRestoration.Av1LoopRestorationReader.ReadUnit(
+                        ref reader,
+                        frameType,
+                        scratchUnit,
+                        this.tileReferenceWiener[plane],
+                        this.tileReferenceSgrProj[plane],
+                        isChroma: plane > 0);
+                }
             }
         }
     }
@@ -275,7 +363,10 @@ internal class Av1TileReader : IAv1TileReader
 
                 break;
             default:
-                throw new NotImplementedException($"Partition type: {partitionType} is not supported.");
+                // The 10 valid partition types (None..Vertical4) are all handled above; only
+                // Av1PartitionType.Invalid (255) reaches here, which means the bitstream
+                // produced a malformed partition value.
+                throw new InvalidImageContentException($"Invalid partition type read from bitstream: {partitionType}.");
         }
 
         this.UpdatePartitionContext(new Point(columnIndex, rowIndex), tileInfo, superblockInfo, subSize, blockSize, partitionType);
@@ -1388,25 +1479,38 @@ internal class Av1TileReader : IAv1TileReader
             return;
         }
 
+        // libaom decodemv.c read_cdef: CDEF unit is fixed at 64x64; for a 128x128
+        // superblock there are 4 units indexed by 0..3 = (col_unit | row_unit<<1).
+        // The unit indicators are booleans (0 or 1), not the raw mi-offsets.
         int cdefSize4 = Av1BlockSize.Block64x64.Get4x4WideCount();
-        int row = partitionInfo.RowIndex & cdefSize4;
-        int col = partitionInfo.ColumnIndex & cdefSize4;
-        int index = this.SequenceHeader.SuperblockSize == Av1BlockSize.Block128x128 ? Math.Max(1, col) + (Math.Max(1, row) << 1) : 0;
-        if (partitionInfo.CdefStrength[index] == -1)
+        int rowUnit = (partitionInfo.RowIndex & cdefSize4) != 0 ? 1 : 0;
+        int colUnit = (partitionInfo.ColumnIndex & cdefSize4) != 0 ? 1 : 0;
+        int index = this.SequenceHeader.SuperblockSize == Av1BlockSize.Block128x128
+            ? colUnit + (rowUnit << 1)
+            : 0;
+        Span<int> cdefStrength = partitionInfo.CdefStrength;
+        if (cdefStrength[index] == -1)
         {
             int cdfStrength = reader.ReadCdfStrength(this.FrameHeader.CdefParameters.BitCount);
-            partitionInfo.CdefStrength[index] = cdfStrength;
+            cdefStrength[index] = cdfStrength;
 
-            // Populate to nearby 64x64s if needed based on h4 & w4
+            // For 128x128 superblocks the same strength may apply to multiple 64x64
+            // CDEF units when the parent block spans them; stamp the strength into all
+            // covered units. libaom does this implicitly via cdef_transmitted[]; we
+            // mirror the effect by writing each covered unit slot.
             if (this.SequenceHeader.SuperblockSize == Av1BlockSize.Block128x128)
             {
                 int w4 = partitionInfo.ModeInfo.BlockSize.Get4x4WideCount();
                 int h4 = partitionInfo.ModeInfo.BlockSize.Get4x4HighCount();
-                for (int i = row; i < row + h4; i += cdefSize4)
+                int startRow = partitionInfo.RowIndex & cdefSize4;
+                int startCol = partitionInfo.ColumnIndex & cdefSize4;
+                for (int i = startRow; i < startRow + h4; i += cdefSize4)
                 {
-                    for (int j = col; j < col + w4; j += cdefSize4)
+                    for (int j = startCol; j < startCol + w4; j += cdefSize4)
                     {
-                        partitionInfo.CdefStrength[Math.Max(1, j & cdefSize4) + (Math.Max(1, i & cdefSize4) << 1)] = cdfStrength;
+                        int subRowUnit = (i & cdefSize4) != 0 ? 1 : 0;
+                        int subColUnit = (j & cdefSize4) != 0 ? 1 : 0;
+                        cdefStrength[subColUnit + (subRowUnit << 1)] = cdfStrength;
                     }
                 }
             }
