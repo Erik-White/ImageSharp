@@ -243,6 +243,62 @@ public class Av1PredictorTests
         Assert.All(destination, (b) => AssertValue(expected, b));
     }
 
+    /// <summary>
+    /// SmoothHorizontal sums two weighted terms (left[r] and the rightmost top sample) so
+    /// libaom (intrapred.c) divides by the raw scale, not 2*scale. With a constant K-fill
+    /// the predictor must reproduce K everywhere; if log2_scale is wrong by 1 it produces
+    /// K/2 which this test catches in a way the digest tests didn't.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(GetTransformSizes))]
+    public void VerifySmoothHorizontal_ConstantNeighborhood_FillsWithConstant(int _, int width, int height)
+    {
+        const byte fillValue = 100;
+        byte[] above = new byte[width + height];
+        byte[] left = new byte[width + height];
+        Array.Fill(above, fillValue);
+        Array.Fill(left, fillValue);
+        byte[] destination = new byte[width * height];
+
+        Av1SmoothHorizontalPredictor predictor = new(new Size(width, height));
+        predictor.PredictScalar(destination, (nuint)width, above, left);
+
+        for (int r = 0; r < height; r++)
+        {
+            for (int c = 0; c < width; c++)
+            {
+                Assert.Equal(fillValue, destination[(r * width) + c]);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Mirror of SmoothHorizontal: SmoothVertical's two-term sum should divide by the raw
+    /// scale; constant input → constant output everywhere.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(GetTransformSizes))]
+    public void VerifySmoothVertical_ConstantNeighborhood_FillsWithConstant(int _, int width, int height)
+    {
+        const byte fillValue = 100;
+        byte[] above = new byte[width + height];
+        byte[] left = new byte[width + height];
+        Array.Fill(above, fillValue);
+        Array.Fill(left, fillValue);
+        byte[] destination = new byte[width * height];
+
+        Av1SmoothVerticalPredictor predictor = new(new Size(width, height));
+        predictor.PredictScalar(destination, (nuint)width, above, left);
+
+        for (int r = 0; r < height; r++)
+        {
+            for (int c = 0; c < width; c++)
+            {
+                Assert.Equal(fillValue, destination[(r * width) + c]);
+            }
+        }
+    }
+
     [Theory]
     [MemberData(nameof(GetTransformSizes))]
     public void VerifySmooth(int index, int width, int height)

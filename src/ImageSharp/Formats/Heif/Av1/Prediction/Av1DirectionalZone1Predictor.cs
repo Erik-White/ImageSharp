@@ -36,6 +36,7 @@ internal class Av1DirectionalZone1Predictor
         int upsampleAbove = upsample ? 1 : 0;
         ref byte aboveRef = ref above[0];
         ref byte destinationRef = ref destination[0];
+
         int maxBasisX = (((int)this.blockWidth + (int)this.blockHeight) - 1) << upsampleAbove;
         int fractionBitCount = 6 - upsampleAbove;
         int basisIncrement = 1 << upsampleAbove;

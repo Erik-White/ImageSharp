@@ -130,7 +130,7 @@ public class Av1FrameDecodeTests
         Assert.True(yDiff.MaxAbs <= 1, $"Y rows 0-3 diverge by more than 1 LSB: {yDiff}");
     }
 
-    [Fact(Skip = "Non-IBC intra reconstruction still has small divergences. Paeth + WHT + intra-edge top-right fixes brought mean_abs from 36 to ~1; remaining errors are scattered ~1-LSB rounding plus a few directional-predictor edge cases.")]
+    [Fact(Skip = "Non-IBC intra reconstruction has small remaining divergences (mean_abs ~0.83 after smooth-H/V scale fix). Largest remaining errors come from Zone1 directional predictor with upsampleAbove=1 — likely an intra-edge upsampler bug.")]
     public void MonoIbc256_Frame0_Y_MatchesLibaomReference()
     {
         byte[] obus = LoadIvfFirstFrame(TestImages.Heif.MonoIbc256Ivf);
@@ -155,6 +155,92 @@ public class Av1FrameDecodeTests
         this.output.WriteLine($"Y: {yDiff}");
 
         Assert.Equal(0, yDiff.MaxAbs);
+    }
+
+    /// <summary>
+    /// `Orange4x4.ivf` — 4x4 4:2:0 single-block solid-orange fixture (re-muxed from the
+    /// matching AVIF). Tiny, all-DC, no IBC, no palette: the simplest possible exercise of
+    /// the regular non-IBC inverse-transform path.
+    /// </summary>
+    [Fact]
+    public void Orange4x4_Frame0_MatchesLibaomReference()
+    {
+        AssertLibaomYuv420Match(TestImages.Heif.Orange4x4Ivf, "Heif/Av1/Orange4x4.frame0.yuv");
+    }
+
+    /// <summary>
+    /// `Irvine_CA.ivf` — 384x256 4:2:0 photographic fixture (re-muxed from the AVIF in
+    /// AOMediaCodec/av1-avif/testFiles/Microsoft). Currently throws inside
+    /// <c>ReadLoopRestoration</c>; the loop-restoration syntax + filter aren't implemented
+    /// yet. Reference YUV is in place so the assertion can light up once the missing
+    /// pieces land.
+    /// </summary>
+    [Fact(Skip = "Av1TileReader.ReadLoopRestoration is not implemented; this fixture has loop_restoration enabled.")]
+    public void IrvineCa_Frame0_MatchesLibaomReference()
+    {
+        AssertLibaomYuv420Match(TestImages.Heif.IrvineCaIvf, "Heif/Av1/Irvine_CA.frame0.yuv");
+    }
+
+    /// <summary>
+    /// Smoke test: every fixture in the AV1 input set should at least drive the decoder
+    /// to completion without throwing an unimplemented-feature exception. When a fixture
+    /// trips a NotImplementedException the test is expected to be marked Skip with the
+    /// missing-feature name; until then this set is the canary that flags new failure
+    /// modes when AV1 features land.
+    /// </summary>
+    [Theory]
+    [InlineData(TestImages.Heif.Orange4x4Ivf)]
+    [InlineData(TestImages.Heif.IbcClean256Ivf)]
+    [InlineData(TestImages.Heif.MonoIbc256Ivf)]
+    [InlineData(TestImages.Heif.ScreenText512Q30Ivf)]
+    [InlineData(TestImages.Heif.ScreenTile256Ivf, Skip = "IndexOutOfRangeException in Av1TileReader.UpdateTransformInfo. FirstTransformLocation array sizing bug for this fixture's partition shape.")]
+    public void DecodeWithoutThrowing(string ivfFixture)
+    {
+        byte[] obus = LoadIvfFirstFrame(ivfFixture);
+        Av1Decoder decoder = new(Configuration.Default);
+        using Image<Rgba32> _ = decoder.Decode<Rgba32>(obus);
+        Assert.NotNull(decoder.FrameBuffer);
+        Assert.NotNull(decoder.FrameHeader);
+    }
+
+    private void AssertLibaomYuv420Match(string ivfFixture, string referenceRelativePath)
+    {
+        byte[] obus = LoadIvfFirstFrame(ivfFixture);
+
+        Av1Decoder decoder = new(Configuration.Default);
+        using Image<Rgba32> _ = decoder.Decode<Rgba32>(obus);
+        Assert.NotNull(decoder.FrameBuffer);
+        Assert.NotNull(decoder.FrameHeader);
+
+        int width = decoder.FrameHeader!.FrameSize.FrameWidth;
+        int height = decoder.FrameHeader.FrameSize.FrameHeight;
+        int chromaWidth = (width + 1) >> 1;
+        int chromaHeight = (height + 1) >> 1;
+
+        byte[] reference = LoadReference(referenceRelativePath);
+        int expectedSize = (width * height) + (2 * chromaWidth * chromaHeight);
+        Assert.Equal(expectedSize, reference.Length);
+
+        int yOffset = 0;
+        int uOffset = width * height;
+        int vOffset = uOffset + (chromaWidth * chromaHeight);
+
+        int originX = decoder.FrameBuffer!.OriginX;
+        int originY = decoder.FrameBuffer.OriginY;
+        int chromaOriginX = originX >> 1;
+        int chromaOriginY = originY >> 1;
+
+        PlaneDiff yDiff = ComparePlane(decoder.FrameBuffer.BufferY!, reference.AsSpan(yOffset, width * height), width, height, originX, originY);
+        PlaneDiff uDiff = ComparePlane(decoder.FrameBuffer.BufferCb!, reference.AsSpan(uOffset, chromaWidth * chromaHeight), chromaWidth, chromaHeight, chromaOriginX, chromaOriginY);
+        PlaneDiff vDiff = ComparePlane(decoder.FrameBuffer.BufferCr!, reference.AsSpan(vOffset, chromaWidth * chromaHeight), chromaWidth, chromaHeight, chromaOriginX, chromaOriginY);
+
+        this.output.WriteLine($"Y: {yDiff}");
+        this.output.WriteLine($"U: {uDiff}");
+        this.output.WriteLine($"V: {vDiff}");
+
+        Assert.Equal(0, yDiff.MaxAbs);
+        Assert.Equal(0, uDiff.MaxAbs);
+        Assert.Equal(0, vDiff.MaxAbs);
     }
 
     private static byte[] LoadIvfFirstFrame(string fixture)

@@ -41,8 +41,10 @@ internal class Av1SmoothHorizontalPredictor : IAv1Predictor
         int rightPrediction = Unsafe.Add(ref aboveRef, this.blockWidth - 1); // estimated by top-right pixel
         ref int weights = ref Av1SmoothPredictor.Weights[(int)this.blockWidth];
 
-        // scale = 2 * 2^sm_weight_log2_scale
-        int log2Scale = 1 + Av1SmoothPredictor.WeightLog2Scale;
+        // libaom intrapred.c smooth_h_predictor: only two weighted terms (left and right
+        // estimate) so the divisor is the raw scale, not 2*scale. SmoothPredictor (which
+        // sums four terms) is the one that uses 2*scale; SmoothH/SmoothV do not.
+        int log2Scale = Av1SmoothPredictor.WeightLog2Scale;
         int scale = 1 << Av1SmoothPredictor.WeightLog2Scale;
 
         // sm_weights_sanity_checks(sm_weights_w, sm_weights_h, scale, log2_scale + 2);

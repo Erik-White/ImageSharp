@@ -1257,6 +1257,18 @@ public static class TestImages
         // mode parse) that the 4:2:0 fixtures don't cover.
         // Reference Y plane at ReferenceOutput/Heif/Av1/mono-ibc-256.frame0.yuv.
         public const string MonoIbc256Ivf = "Heif/mono-ibc-256.ivf";
+
+        // ffmpeg-extracted IVF re-muxes of the matching AVIF fixtures, kept alongside
+        // the AVIF originals so Av1FrameDecodeTests can use the same LoadIvfFirstFrame
+        // helper. Reference YUVs (when present) are at ReferenceOutput/Heif/Av1/<name>.frame0.yuv.
+        public const string Orange4x4Ivf = "Heif/Orange4x4.ivf";
+        public const string IrvineCaIvf = "Heif/Irvine_CA.ivf";
+
+        // 4:4:4 screen-content fixtures (re-muxed from the AVIF originals). aomdec
+        // refuses --i420 on these so the YUV golden compare path doesn't apply yet;
+        // the decode-without-throwing smoke tests still cover them.
+        public const string ScreenTile256Ivf = "Heif/screen-tile-256.ivf";
+        public const string ScreenText512Q30Ivf = "Heif/screen-text-512-q30.ivf";
     }
 
     public static class Ico
