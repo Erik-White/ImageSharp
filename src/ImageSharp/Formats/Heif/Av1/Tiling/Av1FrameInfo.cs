@@ -175,9 +175,12 @@ internal partial class Av1FrameInfo
 
     public Span<Av1TransformInfo> GetSuperblockTransformUv(Point index)
     {
+        // U slots fill [0..N), then V slots [N..2N) (see UpdateTransformInfo's copy
+        // step). Both planes share the same per-SB region, so the slice length is 2N.
         Span<Av1TransformInfo> span = this.transformInfosUv;
-        int offset = (((index.Y * this.superblockColumnCount) + index.X) * this.modeInfoCountPerSuperblock) << 1;
-        return span.Slice(offset, this.modeInfoCountPerSuperblock);
+        int perSuperblock = this.modeInfoCountPerSuperblock << 1;
+        int offset = ((index.Y * this.superblockColumnCount) + index.X) * perSuperblock;
+        return span.Slice(offset, perSuperblock);
     }
 
     public Span<int> GetCoefficients(int plane) =>

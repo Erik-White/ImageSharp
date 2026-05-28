@@ -1185,7 +1185,10 @@ internal class Av1TileReader : IAv1TileReader
                 stepColumn = transformSizeUv.Get4x4WideCount();
                 stepRow = transformSizeUv.Get4x4HighCount();
 
-                unitHeight = Av1Math.RoundPowerOf2(Math.Min(height + idx, maxBlockHigh), subY ? 1 : 0);
+                // SVT typo (mirrored across the chroma loop bound calc): height should be
+                // bounded by idy, not idx. Shows up only on 4:4:4 fixtures where the
+                // mismatch overruns transformInfoUvIndex past the chroma slot allocation.
+                unitHeight = Av1Math.RoundPowerOf2(Math.Min(height + idy, maxBlockHigh), subY ? 1 : 0);
                 unitWidth = Av1Math.RoundPowerOf2(Math.Min(width + idx, maxBlockWide), subX ? 1 : 0);
                 for (int blockRow = idy; blockRow < unitHeight; blockRow += stepRow)
                 {

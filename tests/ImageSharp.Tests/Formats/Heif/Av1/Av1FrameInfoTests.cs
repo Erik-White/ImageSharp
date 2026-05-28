@@ -26,6 +26,36 @@ public class Av1FrameInfoTests
         Assert.Null(frameInfo.GetModeInfoAtMiPosition(new Point(miX, miY)));
     }
 
+    /// <summary>
+    /// Each per-superblock chroma transform-info slice must be 2x the mode-info count
+    /// (one bank of slots for U interleaved with one bank for V; see UpdateTransformInfo's
+    /// V-from-U copy step). Returning the luma-sized slice instead caused 4:4:4 fixtures
+    /// to throw IndexOutOfRange the moment they walked past the U bank.
+    /// </summary>
+    [Theory]
+    [InlineData(true, true)]   // 4:2:0
+    [InlineData(false, false)] // 4:4:4
+    public void GetSuperblockTransformUv_LengthIsTwiceModeInfoCount(bool subX, bool subY)
+    {
+        ObuSequenceHeader header = new()
+        {
+            MaxFrameWidth = 128,
+            MaxFrameHeight = 128,
+            Use128x128Superblock = false,
+            ColorConfig = new ObuColorConfig
+            {
+                IsMonochrome = false,
+                SubSamplingX = subX,
+                SubSamplingY = subY,
+            },
+        };
+        Av1FrameInfo frameInfo = new(header);
+
+        // 64x64 SB with 4x4 mode-info units → 16x16 = 256 mi units per SB.
+        Span<Av1TransformInfo> chromaSpan = frameInfo.GetSuperblockTransformUv(new Point(0, 0));
+        Assert.Equal(512, chromaSpan.Length);
+    }
+
     private static ObuSequenceHeader BuildSequenceHeader(int width, int height)
         => new()
         {

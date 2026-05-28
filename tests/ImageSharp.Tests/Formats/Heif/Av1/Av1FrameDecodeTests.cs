@@ -170,7 +170,7 @@ public class Av1FrameDecodeTests
     [InlineData(TestImages.Heif.IbcClean256Ivf)]
     [InlineData(TestImages.Heif.MonoIbc256Ivf)]
     [InlineData(TestImages.Heif.ScreenText512Q30Ivf)]
-    [InlineData(TestImages.Heif.ScreenTile256Ivf, Skip = "IndexOutOfRangeException in Av1TileReader.UpdateTransformInfo for this 4:4:4 fixture; not yet diagnosed.")]
+    [InlineData(TestImages.Heif.ScreenTile256Ivf)]
     public void DecodeWithoutThrowing(string ivfFixture)
     {
         byte[] obus = LoadIvfFirstFrame(ivfFixture);
