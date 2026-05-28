@@ -317,11 +317,14 @@ internal class Av1Inverse2dTransformer
             a1 -= b1;
             d1 += c1;
 
-            int rowBase = i * stride;
-            destination[rowBase] = Av1InverseTransformMath.ClipPixelAdd(destination[rowBase], a1);
-            destination[rowBase + 1] = Av1InverseTransformMath.ClipPixelAdd(destination[rowBase + 1], b1);
-            destination[rowBase + 2] = Av1InverseTransformMath.ClipPixelAdd(destination[rowBase + 2], c1);
-            destination[rowBase + 3] = Av1InverseTransformMath.ClipPixelAdd(destination[rowBase + 3], d1);
+            // libaom av1_highbd_iwht4x4_16_add_c writes column i of dest per iter, matching
+            // the encoder's pass-1 transpose. The forward+inverse chain round-trips to
+            // identity only when the scan order in Av1ScanOrderConstants and this pass-2
+            // write order are both libaom-aligned.
+            destination[i] = Av1InverseTransformMath.ClipPixelAdd(destination[i], a1);
+            destination[i + stride] = Av1InverseTransformMath.ClipPixelAdd(destination[i + stride], b1);
+            destination[i + (2 * stride)] = Av1InverseTransformMath.ClipPixelAdd(destination[i + (2 * stride)], c1);
+            destination[i + (3 * stride)] = Av1InverseTransformMath.ClipPixelAdd(destination[i + (3 * stride)], d1);
         }
     }
 
