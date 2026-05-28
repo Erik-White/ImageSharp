@@ -18,7 +18,13 @@ internal static class Av1PaletteCache
     /// <returns>The number of colors written to <paramref name="cache"/>.</returns>
     public static int Build(Av1PartitionInfo partitionInfo, Av1PlaneType plane, Span<ushort> cache)
     {
-        ReadOnlySpan<ushort> above = GetPalette(partitionInfo.AboveModeInfo, plane);
+        // libaom av1_get_palette_cache (pred_common.c:73): the above neighbor's
+        // palette is ignored when the current block sits on a 64-luma-pixel
+        // (16 mi-row) boundary. mi_row * 4 % 64 == 0 ⇔ mi_row % 16 == 0.
+        Av1BlockModeInfo? aboveMi = (partitionInfo.RowIndex & 0xF) != 0
+            ? partitionInfo.AboveModeInfo
+            : null;
+        ReadOnlySpan<ushort> above = GetPalette(aboveMi, plane);
         ReadOnlySpan<ushort> left = GetPalette(partitionInfo.LeftModeInfo, plane);
         return MergeUnique(above, left, cache);
     }

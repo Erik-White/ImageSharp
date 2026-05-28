@@ -3,6 +3,7 @@
 
 using SixLabors.ImageSharp.Formats.Heif.Av1.Prediction;
 using SixLabors.ImageSharp.Formats.Heif.Av1.Tiling;
+using SixLabors.ImageSharp.Formats.Heif.Av1.Tiling.MotionVector;
 using SixLabors.ImageSharp.Formats.Heif.Av1.Transform;
 
 namespace SixLabors.ImageSharp.Formats.Heif.Av1.Entropy;
@@ -41,6 +42,26 @@ internal ref struct Av1SymbolDecoder
     private readonly Av1Distribution chromaFromLumaSign = Av1DefaultDistributions.ChromaFromLumaSign;
     private readonly Av1Distribution[] chromaFromLumaAlpha = Av1DefaultDistributions.ChromaFromLumaAlpha;
     private readonly Av1Distribution[][][] intraExtendedTransform = Av1DefaultDistributions.IntraExtendedTransform;
+    private readonly Av1Distribution[][] interExtendedTransform = Av1DefaultDistributions.InterExtendedTransform;
+    private readonly Av1Distribution[] transformPartition = Av1DefaultDistributions.TransformPartition;
+    private readonly Av1Distribution motionVectorJoint = Av1DefaultDistributions.MotionVectorJoint;
+    private readonly Av1Distribution[] motionVectorSign = Av1DefaultDistributions.MotionVectorSign;
+    private readonly Av1Distribution[] motionVectorClass = Av1DefaultDistributions.MotionVectorClass;
+    private readonly Av1Distribution[] motionVectorClass0Bit = Av1DefaultDistributions.MotionVectorClass0Bit;
+    private readonly Av1Distribution[][] motionVectorClass0Fraction = Av1DefaultDistributions.MotionVectorClass0Fraction;
+    private readonly Av1Distribution[] motionVectorFraction = Av1DefaultDistributions.MotionVectorFraction;
+    private readonly Av1Distribution[] motionVectorClass0HighPrecision = Av1DefaultDistributions.MotionVectorClass0HighPrecision;
+    private readonly Av1Distribution[] motionVectorHighPrecision = Av1DefaultDistributions.MotionVectorHighPrecision;
+    private readonly Av1Distribution[][] motionVectorBit = Av1DefaultDistributions.MotionVectorBit;
+    private readonly Av1Distribution displacementVectorJoint = Av1DefaultDistributions.DisplacementVectorJoint;
+    private readonly Av1Distribution[] displacementVectorSign = Av1DefaultDistributions.DisplacementVectorSign;
+    private readonly Av1Distribution[] displacementVectorClass = Av1DefaultDistributions.DisplacementVectorClass;
+    private readonly Av1Distribution[] displacementVectorClass0Bit = Av1DefaultDistributions.DisplacementVectorClass0Bit;
+    private readonly Av1Distribution[][] displacementVectorClass0Fraction = Av1DefaultDistributions.DisplacementVectorClass0Fraction;
+    private readonly Av1Distribution[] displacementVectorFraction = Av1DefaultDistributions.DisplacementVectorFraction;
+    private readonly Av1Distribution[] displacementVectorClass0HighPrecision = Av1DefaultDistributions.DisplacementVectorClass0HighPrecision;
+    private readonly Av1Distribution[] displacementVectorHighPrecision = Av1DefaultDistributions.DisplacementVectorHighPrecision;
+    private readonly Av1Distribution[][] displacementVectorBit = Av1DefaultDistributions.DisplacementVectorBit;
     private readonly Configuration configuration;
     private Av1SymbolReader reader;
     private readonly int baseQIndex;
@@ -69,6 +90,126 @@ internal ref struct Av1SymbolDecoder
     {
         ref Av1SymbolReader r = ref this.reader;
         return r.ReadSymbol(this.tileIntraBlockCopy) > 0;
+    }
+
+    /// <summary>Spec 5.11.31: <c>mv_joint</c>.</summary>
+    public Av1MotionVectorJoint ReadMotionVectorJoint()
+    {
+        ref Av1SymbolReader r = ref this.reader;
+        return (Av1MotionVectorJoint)r.ReadSymbol(this.motionVectorJoint);
+    }
+
+    /// <summary>Spec 5.11.32: <c>mv_sign</c>.</summary>
+    public bool ReadMotionVectorSign(Av1MotionVectorComponent comp)
+    {
+        ref Av1SymbolReader r = ref this.reader;
+        return r.ReadSymbol(this.motionVectorSign[(int)comp]) > 0;
+    }
+
+    /// <summary>Spec 5.11.32: <c>mv_class</c>.</summary>
+    public int ReadMotionVectorClass(Av1MotionVectorComponent comp)
+    {
+        ref Av1SymbolReader r = ref this.reader;
+        return r.ReadSymbol(this.motionVectorClass[(int)comp]);
+    }
+
+    /// <summary>Spec 5.11.32: <c>mv_class0_bit</c>.</summary>
+    public int ReadMotionVectorClass0Bit(Av1MotionVectorComponent comp)
+    {
+        ref Av1SymbolReader r = ref this.reader;
+        return r.ReadSymbol(this.motionVectorClass0Bit[(int)comp]);
+    }
+
+    /// <summary>Spec 5.11.32: <c>mv_class0_fr</c>.</summary>
+    public int ReadMotionVectorClass0Fraction(Av1MotionVectorComponent comp, int class0Bit)
+    {
+        ref Av1SymbolReader r = ref this.reader;
+        return r.ReadSymbol(this.motionVectorClass0Fraction[(int)comp][class0Bit]);
+    }
+
+    /// <summary>Spec 5.11.32: <c>mv_fr</c>.</summary>
+    public int ReadMotionVectorFraction(Av1MotionVectorComponent comp)
+    {
+        ref Av1SymbolReader r = ref this.reader;
+        return r.ReadSymbol(this.motionVectorFraction[(int)comp]);
+    }
+
+    /// <summary>Spec 5.11.32: <c>mv_class0_hp</c>.</summary>
+    public int ReadMotionVectorClass0HighPrecision(Av1MotionVectorComponent comp)
+    {
+        ref Av1SymbolReader r = ref this.reader;
+        return r.ReadSymbol(this.motionVectorClass0HighPrecision[(int)comp]);
+    }
+
+    /// <summary>Spec 5.11.32: <c>mv_hp</c>.</summary>
+    public int ReadMotionVectorHighPrecision(Av1MotionVectorComponent comp)
+    {
+        ref Av1SymbolReader r = ref this.reader;
+        return r.ReadSymbol(this.motionVectorHighPrecision[(int)comp]);
+    }
+
+    /// <summary>Spec 5.11.32: <c>mv_bit</c>. Reads one offset bit at <paramref name="bitIndex"/> in [0, MV_OFFSET_BITS).</summary>
+    public int ReadMotionVectorBit(Av1MotionVectorComponent comp, int bitIndex)
+    {
+        ref Av1SymbolReader r = ref this.reader;
+        return r.ReadSymbol(this.motionVectorBit[(int)comp][bitIndex]);
+    }
+
+    // ReadDv* mirror the ReadMotionVector* methods but route through the IBC `ndvc`
+    // context. libaom keeps `nmvc` and `ndvc` as separate adaptive instances so IBC
+    // DV decode does not pollute inter-MV stats. See libaom decodemv.c:681.
+    public Av1MotionVectorJoint ReadDisplacementVectorJoint()
+    {
+        ref Av1SymbolReader r = ref this.reader;
+        return (Av1MotionVectorJoint)r.ReadSymbol(this.displacementVectorJoint);
+    }
+
+    public bool ReadDisplacementVectorSign(Av1MotionVectorComponent comp)
+    {
+        ref Av1SymbolReader r = ref this.reader;
+        return r.ReadSymbol(this.displacementVectorSign[(int)comp]) > 0;
+    }
+
+    public int ReadDisplacementVectorClass(Av1MotionVectorComponent comp)
+    {
+        ref Av1SymbolReader r = ref this.reader;
+        return r.ReadSymbol(this.displacementVectorClass[(int)comp]);
+    }
+
+    public int ReadDisplacementVectorClass0Bit(Av1MotionVectorComponent comp)
+    {
+        ref Av1SymbolReader r = ref this.reader;
+        return r.ReadSymbol(this.displacementVectorClass0Bit[(int)comp]);
+    }
+
+    public int ReadDisplacementVectorClass0Fraction(Av1MotionVectorComponent comp, int class0Bit)
+    {
+        ref Av1SymbolReader r = ref this.reader;
+        return r.ReadSymbol(this.displacementVectorClass0Fraction[(int)comp][class0Bit]);
+    }
+
+    public int ReadDisplacementVectorFraction(Av1MotionVectorComponent comp)
+    {
+        ref Av1SymbolReader r = ref this.reader;
+        return r.ReadSymbol(this.displacementVectorFraction[(int)comp]);
+    }
+
+    public int ReadDisplacementVectorClass0HighPrecision(Av1MotionVectorComponent comp)
+    {
+        ref Av1SymbolReader r = ref this.reader;
+        return r.ReadSymbol(this.displacementVectorClass0HighPrecision[(int)comp]);
+    }
+
+    public int ReadDisplacementVectorHighPrecision(Av1MotionVectorComponent comp)
+    {
+        ref Av1SymbolReader r = ref this.reader;
+        return r.ReadSymbol(this.displacementVectorHighPrecision[(int)comp]);
+    }
+
+    public int ReadDisplacementVectorBit(Av1MotionVectorComponent comp, int bitIndex)
+    {
+        ref Av1SymbolReader r = ref this.reader;
+        return r.ReadSymbol(this.displacementVectorBit[(int)comp][bitIndex]);
     }
 
     public Av1PartitionType ReadPartitionType(int context)
@@ -265,6 +406,11 @@ internal ref struct Av1SymbolDecoder
 
         DebugGuard.MustBeLessThanOrEqualTo(depth, Av1Constants.MaxTransformCategories, nameof(depth));
         int category = depth - 1;
+        if (Av1SymbolTrace.Enabled)
+        {
+            Av1SymbolTrace.WriteNote($"# TXSIZE_SLOT cat={category} ctx={context} bsize={(int)blockSize}");
+        }
+
         int value = r.ReadSymbol(this.transformSize[category][context]);
         Av1TransformSize transformSize = blockSize.GetMaximumTransformSize();
         for (int d = 0; d < value; ++d)
@@ -280,6 +426,7 @@ internal ref struct Av1SymbolDecoder
     /// </summary>
     public Av1TransformType ReadTransformType(
         Av1TransformSize transformSize,
+        bool isInter,
         bool useReducedTransformSet,
         bool useFilterIntra,
         int baseQIndex,
@@ -288,39 +435,55 @@ internal ref struct Av1SymbolDecoder
     {
         Av1TransformType transformType = Av1TransformType.DctDct;
 
-        /*
-        // No need to read transform type if block is skipped.
-        if (mbmi.Skip ||
-            svt_aom_seg_feature_active(&parse_ctxt->frame_header->segmentation_params, mbmi->segment_id, SEG_LVL_SKIP))
-            return;
-        */
-
         if (baseQIndex == 0)
         {
             return transformType;
         }
 
-        // Ignoring INTER blocks here, as these should not end up here.
-        // int inter_block = is_inter_block_dec(mbmi);
-        Av1TransformSetType transformSetType = Av1SymbolContextHelper.GetExtendedTransformSetType(transformSize, useReducedTransformSet);
-        if (transformSetType > Av1TransformSetType.DctOnly && baseQIndex > 0)
+        Av1TransformSetType transformSetType = Av1SymbolContextHelper.GetExtendedTransformSetType(transformSize, isInter, useReducedTransformSet);
+        if (transformSetType > Av1TransformSetType.DctOnly)
         {
-            int extendedSet = Av1SymbolContextHelper.GetExtendedTransformSet(transformSetType);
+            int extendedSet = Av1SymbolContextHelper.GetExtendedTransformSet(transformSetType, isInter);
             Av1TransformSize squareTransformSize = transformSize.GetSquareSize();
-            Av1PredictionMode intraMode = useFilterIntra
-                ? filterIntraMode.ToIntraDirection()
-                : intraDirection;
             ref Av1SymbolReader r = ref this.reader;
-            int symbol = r.ReadSymbol(this.intraExtendedTransform[extendedSet][(int)squareTransformSize][(int)intraMode]);
+            int symbol;
+            if (isInter)
+            {
+                // libaom indexes inter_ext_tx_cdf by txsize_sqr_map[tx_size]; for our enum
+                // GetSquareSize() returns the same value (e.g. TX_8X16 -> Size8x8).
+                symbol = r.ReadSymbol(this.interExtendedTransform[extendedSet][(int)squareTransformSize]);
+            }
+            else
+            {
+                Av1PredictionMode intraMode = useFilterIntra
+                    ? filterIntraMode.ToIntraDirection()
+                    : intraDirection;
+                symbol = r.ReadSymbol(this.intraExtendedTransform[extendedSet][(int)squareTransformSize][(int)intraMode]);
+            }
+
             transformType = Av1SymbolContextHelper.ExtendedTransformInverse[(int)transformSetType][symbol];
         }
 
         return transformType;
     }
 
-    public bool ReadTransformBlockSkip(Av1TransformSize transformSizeContext, int skipContext)
+    /// <summary>
+    /// libaom read_tx_size_vartx split flag (decodeframe.c:1094).
+    /// </summary>
+    public bool ReadTransformPartitionSplit(int context)
     {
         ref Av1SymbolReader r = ref this.reader;
+        return r.ReadSymbol(this.transformPartition[context]) > 0;
+    }
+
+    public bool ReadTransformBlockSkip(Av1TransformSize transformSizeContext, int skipContext, int plane = -1)
+    {
+        ref Av1SymbolReader r = ref this.reader;
+        if (Av1SymbolTrace.Enabled)
+        {
+            Av1SymbolTrace.WriteNote($"# TBS_SLOT txSizeCtx={(int)transformSizeContext} skipCtx={skipContext} plane={plane}");
+        }
+
         return r.ReadSymbol(this.transformBlockSkip[(int)transformSizeContext][skipContext]) > 0;
     }
 
@@ -374,7 +537,7 @@ internal ref struct Av1SymbolDecoder
 
         Av1LevelBuffer levels = new(this.configuration, new Size(width, height));
 
-        bool allZero = this.ReadTransformBlockSkip(transformSizeContext, transformBlockContext.SkipContext);
+        bool allZero = this.ReadTransformBlockSkip(transformSizeContext, transformBlockContext.SkipContext, plane);
         int endOfBlock;
         if (allZero)
         {
@@ -390,7 +553,10 @@ internal ref struct Av1SymbolDecoder
 
         if (plane == (int)Av1Plane.Y)
         {
-            transformInfo.Type = this.ReadTransformType(transformSize, useReducedTransformSet, modeInfo.FilterIntraModeInfo.UseFilterIntra, this.baseQIndex, modeInfo.FilterIntraModeInfo.Mode, modeInfo.YMode);
+            // libaom is_inter_block returns true for IBC; this is the only "is_inter" source
+            // until non-key inter frames are supported.
+            bool isInter = modeInfo.UseIntraBlockCopy;
+            transformInfo.Type = this.ReadTransformType(transformSize, isInter, useReducedTransformSet, modeInfo.FilterIntraModeInfo.UseFilterIntra, this.baseQIndex, modeInfo.FilterIntraModeInfo.Mode, modeInfo.YMode);
         }
 
         transformInfo.Type = ComputeTransformType(planeType, modeInfo, isLossless, transformSize, transformInfo, useReducedTransformSet);
@@ -687,6 +853,13 @@ internal ref struct Av1SymbolDecoder
             {
                 transformType = transformInfo.Type;
             }
+            else if (modeInfo.UseIntraBlockCopy)
+            {
+                // libaom av1_get_tx_type: for inter blocks (including IBC), chroma reuses the
+                // Y-plane tx_type at the chroma's scaled-back position. Caller pre-populates
+                // transformInfo.Type from the matching Y leaf's tx_type_map entry.
+                transformType = transformInfo.Type;
+            }
             else
             {
                 // In intra mode, uv planes don't share the same prediction mode as y
@@ -695,7 +868,7 @@ internal ref struct Av1SymbolDecoder
             }
         }
 
-        Av1TransformSetType transformSetType = Av1SymbolContextHelper.GetExtendedTransformSetType(transformSize, useReducedTransformSet);
+        Av1TransformSetType transformSetType = Av1SymbolContextHelper.GetExtendedTransformSetType(transformSize, modeInfo.UseIntraBlockCopy, useReducedTransformSet);
         if (!transformType.IsExtendedSetUsed(transformSetType))
         {
             transformType = Av1TransformType.DctDct;
@@ -704,24 +877,12 @@ internal ref struct Av1SymbolDecoder
         return transformType;
     }
 
+    // libaom partition_gather_vert_alike (av1_common_int.h:1487). Used by the SPLIT/HORZ
+    // choice (!has_rows && has_cols): subtracts the VERT-family + SPLIT + cross-A so the
+    // remaining mass is NONE+HORZ+HORZ_B+HORZ_4 — i.e. P(outcome 0 = HORZ).
+    // The Av1Distribution constructor takes regular CDF values (it converts to ICDF
+    // internally), so pass the regular-CDF representation directly.
     internal static Av1Distribution GetSplitOrHorizontalDistribution(Av1Distribution[] inputs, Av1BlockSize blockSize, int context)
-    {
-        Av1Distribution input = inputs[context];
-        uint p = Av1Distribution.ProbabilityTop;
-        p -= GetElementProbability(input, Av1PartitionType.Horizontal);
-        p -= GetElementProbability(input, Av1PartitionType.Split);
-        p -= GetElementProbability(input, Av1PartitionType.HorizontalA);
-        p -= GetElementProbability(input, Av1PartitionType.HorizontalB);
-        p -= GetElementProbability(input, Av1PartitionType.VerticalA);
-        if (blockSize != Av1BlockSize.Block128x128)
-        {
-            p -= GetElementProbability(input, Av1PartitionType.Horizontal4);
-        }
-
-        return new(Av1Distribution.ProbabilityTop - p);
-    }
-
-    internal static Av1Distribution GetSplitOrVerticalDistribution(Av1Distribution[] inputs, Av1BlockSize blockSize, int context)
     {
         Av1Distribution input = inputs[context];
         uint p = Av1Distribution.ProbabilityTop;
@@ -735,7 +896,27 @@ internal ref struct Av1SymbolDecoder
             p -= GetElementProbability(input, Av1PartitionType.Vertical4);
         }
 
-        return new(Av1Distribution.ProbabilityTop - p);
+        return new(p);
+    }
+
+    // libaom partition_gather_horz_alike (av1_common_int.h:1472). Used by the SPLIT/VERT
+    // choice (has_rows && !has_cols): subtracts the HORZ-family + SPLIT + cross-A so the
+    // remaining mass is NONE+VERT+VERT_B+VERT_4 — i.e. P(outcome 0 = VERT).
+    internal static Av1Distribution GetSplitOrVerticalDistribution(Av1Distribution[] inputs, Av1BlockSize blockSize, int context)
+    {
+        Av1Distribution input = inputs[context];
+        uint p = Av1Distribution.ProbabilityTop;
+        p -= GetElementProbability(input, Av1PartitionType.Horizontal);
+        p -= GetElementProbability(input, Av1PartitionType.Split);
+        p -= GetElementProbability(input, Av1PartitionType.HorizontalA);
+        p -= GetElementProbability(input, Av1PartitionType.HorizontalB);
+        p -= GetElementProbability(input, Av1PartitionType.VerticalA);
+        if (blockSize != Av1BlockSize.Block128x128)
+        {
+            p -= GetElementProbability(input, Av1PartitionType.Horizontal4);
+        }
+
+        return new(p);
     }
 
     private static uint GetElementProbability(Av1Distribution probability, Av1PartitionType element)

@@ -22,6 +22,14 @@ internal class Av1TileInfo
         this.TileIndex = tileInfo.TileIndex;
     }
 
+    internal Av1TileInfo(int modeInfoRowStart, int modeInfoRowEnd, int modeInfoColumnStart, int modeInfoColumnEnd)
+    {
+        this.ModeInfoRowStart = modeInfoRowStart;
+        this.ModeInfoRowEnd = modeInfoRowEnd;
+        this.ModeInfoColumnStart = modeInfoColumnStart;
+        this.ModeInfoColumnEnd = modeInfoColumnEnd;
+    }
+
     public int ModeInfoRowStart { get; private set; }
 
     public int ModeInfoRowEnd { get; private set; }

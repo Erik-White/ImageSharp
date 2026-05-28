@@ -7,6 +7,7 @@ using SixLabors.ImageSharp.Formats.Heif.Av1.Entropy;
 using SixLabors.ImageSharp.Formats.Heif.Av1.OpenBitstreamUnit;
 using SixLabors.ImageSharp.Formats.Heif.Av1.Pipeline;
 using SixLabors.ImageSharp.Formats.Heif.Av1.Prediction;
+using SixLabors.ImageSharp.Formats.Heif.Av1.Tiling.MotionVector;
 using SixLabors.ImageSharp.Formats.Heif.Av1.Tiling.Palette;
 using SixLabors.ImageSharp.Formats.Heif.Av1.Transform;
 
@@ -291,8 +292,10 @@ internal class Av1TileReader : IAv1TileReader
         int subY = this.SequenceHeader.ColorConfig.SubSamplingY ? 1 : 0;
         Point superblockLocation = superblockInfo.Position * this.SequenceHeader.SuperblockModeInfoSize;
         Point locationInSuperblock = new Point(modeInfoLocation.X - superblockLocation.X, modeInfoLocation.Y - superblockLocation.Y);
-        Av1BlockModeInfo blockModeInfo = new(planesCount, blockSize, locationInSuperblock);
-        blockModeInfo.PartitionType = partitionType;
+        Av1BlockModeInfo blockModeInfo = new(blockSize, locationInSuperblock)
+        {
+            PartitionType = partitionType
+        };
         blockModeInfo.FirstTransformLocation[0] = this.firstTransformOffset[0];
         blockModeInfo.FirstTransformLocation[1] = this.firstTransformOffset[1];
         bool hasChroma = HasChroma(this.SequenceHeader, modeInfoLocation, blockSize);
@@ -306,43 +309,36 @@ internal class Av1TileReader : IAv1TileReader
 
         superblockInfo.BlockCount++;
         partitionInfo.ComputeBoundaryOffsets(this.configuration, this.SequenceHeader, this.FrameHeader, tileInfo);
-        if (hasChroma)
-        {
-            if (this.SequenceHeader.ColorConfig.SubSamplingY && block4x4Height == 1)
-            {
-                partitionInfo.AvailableAboveForChroma = this.IsInside(rowIndex - 2, columnIndex);
-            }
-
-            if (this.SequenceHeader.ColorConfig.SubSamplingX && block4x4Width == 1)
-            {
-                partitionInfo.AvailableLeftForChroma = this.IsInside(rowIndex, columnIndex - 2);
-            }
-        }
-
         Point superblockOrigin = superblockInfo.Position * this.SequenceHeader.SuperblockModeInfoSize;
         int columnInSuperblock = columnIndex - superblockOrigin.X;
         int rowInSuperblock = rowIndex - superblockOrigin.Y;
+        Av1SymbolTrace.WriteMiBlock(rowIndex, columnIndex, (int)blockSize);
         if (partitionInfo.AvailableAbove)
         {
-            partitionInfo.AboveModeInfo = superblockInfo.GetModeInfo(new Point(columnInSuperblock, rowInSuperblock - 1));
+            partitionInfo.AboveModeInfo = this.FrameInfo.GetModeInfoAtMiPosition(new Point(columnIndex, rowIndex - 1));
         }
 
         if (partitionInfo.AvailableLeft)
         {
-            partitionInfo.LeftModeInfo = superblockInfo.GetModeInfo(new Point(columnInSuperblock - 1, rowInSuperblock));
+            partitionInfo.LeftModeInfo = this.FrameInfo.GetModeInfoAtMiPosition(new Point(columnIndex - 1, rowIndex));
         }
 
+        // libaom set_mi_row_col (av1_common_int.h:1394-1415): chroma reference is
+        // anchored to the masked base (row & ~ss_y, col & ~ss_x), then offset by
+        // (-1 row, +ss_x col) for above and (+ss_y row, -1 col) for left.
+        int chromaBaseRow = rowIndex & ~subY;
+        int chromaBaseCol = columnIndex & ~subX;
         if (partitionInfo.AvailableAboveForChroma)
         {
-            partitionInfo.AboveModeInfoForChroma = superblockInfo.GetModeInfo(new Point(rowInSuperblock & ~subY, columnInSuperblock | subX));
+            partitionInfo.AboveModeInfoForChroma = this.FrameInfo.GetModeInfoAtMiPosition(new Point(chromaBaseCol | subX, chromaBaseRow - 1));
         }
 
         if (partitionInfo.AvailableLeftForChroma)
         {
-            partitionInfo.LeftModeInfoForChroma = superblockInfo.GetModeInfo(new Point(rowInSuperblock | subY, columnInSuperblock & ~subX));
+            partitionInfo.LeftModeInfoForChroma = this.FrameInfo.GetModeInfoAtMiPosition(new Point(chromaBaseCol - 1, chromaBaseRow | subY));
         }
 
-        this.ReadModeInfo(ref reader, partitionInfo);
+        this.ReadModeInfo(ref reader, partitionInfo, tileInfo);
         Av1PaletteDecoder.ReadPaletteTokens(ref reader, partitionInfo, this.SequenceHeader);
         this.ReadBlockTransformSize(ref reader, modeInfoLocation, partitionInfo, superblockInfo, tileInfo);
         if (partitionInfo.ModeInfo.Skip)
@@ -461,6 +457,14 @@ internal class Av1TileReader : IAv1TileReader
                             return;
                         }
 
+                        if (plane != 0 && partitionInfo.ModeInfo.UseIntraBlockCopy)
+                        {
+                            // libaom av1_get_tx_type: chroma reuses Y-plane tx_type at the
+                            // chroma's scaled-back position. Pre-populate so ComputeTransformType
+                            // can read transformInfo.Type instead of deriving from intra mode.
+                            transformInfo.Type = LookupYTransformTypeForChroma(partitionInfo, superblockInfo, blockRow, blockColumn, subX, subY);
+                        }
+
                         if (!partitionInfo.ModeInfo.Skip)
                         {
                             endOfBlock = this.ParseTransformBlock(ref reader, partitionInfo, tileInfo, coefficientIndex, transformInfo, plane, blockColumn, blockRow, transformInfo.Size, subX != 0, subY != 0);
@@ -535,7 +539,7 @@ internal class Av1TileReader : IAv1TileReader
         int leftOffset = ((partitionInfo.RowIndex - partitionInfo.SuperblockInfo.ModeInfoPosition.Y) >> (subY ? 1 : 0)) + blockRow;
 
         Av1TransformBlockContext transformBlockContext = this.GetTransformBlockContext(transformSize, plane, planeBlockSize, transformBlockUnitHighCount, transformBlockUnitWideCount, aboveOffset, leftOffset);
-        return this.ParseCoefficients(ref reader, partitionInfo, blockRow, blockColumn, aboveOffset, leftOffset, plane, transformBlockContext, transformSize, coefficientIndex, transformInfo);
+        return this.ParseCoefficients(ref reader, partitionInfo, blockRow, blockColumn, aboveOffset, leftOffset, plane, subX, subY, transformBlockContext, transformSize, coefficientIndex, transformInfo);
     }
 
     /// <summary>
@@ -544,14 +548,11 @@ internal class Av1TileReader : IAv1TileReader
     /// <remarks>
     /// The implementation is taken from SVT-AV1 library, which deviates from the code flow in the specification.
     /// </remarks>
-    private int ParseCoefficients(ref Av1SymbolDecoder reader, Av1PartitionInfo partitionInfo, int blockRow, int blockColumn, int aboveOffset, int leftOffset, int plane, Av1TransformBlockContext transformBlockContext, Av1TransformSize transformSize, int coefficientIndex, Av1TransformInfo transformInfo)
+    private int ParseCoefficients(ref Av1SymbolDecoder reader, Av1PartitionInfo partitionInfo, int blockRow, int blockColumn, int aboveOffset, int leftOffset, int plane, bool subX, bool subY, Av1TransformBlockContext transformBlockContext, Av1TransformSize transformSize, int coefficientIndex, Av1TransformInfo transformInfo)
     {
         Span<int> coefficientBuffer = partitionInfo.SuperblockInfo.GetCoefficients((Av1Plane)plane)[coefficientIndex..];
-        Av1PlaneType planeType = (Av1PlaneType)Math.Min(plane, 1);
         Point blockPosition = new(blockColumn, blockRow);
         bool isLossless = this.FrameHeader.LosslessArray[partitionInfo.ModeInfo.SegmentId];
-        bool subX = this.SequenceHeader.ColorConfig.SubSamplingX;
-        bool subY = this.SequenceHeader.ColorConfig.SubSamplingY;
         Av1BlockSize planeBlockSize = partitionInfo.ModeInfo.BlockSize.GetSubsampled(subX, subY);
         int blocksWide = partitionInfo.GetMaxBlockWide(planeBlockSize, subX);
         int blocksHigh = partitionInfo.GetMaxBlockHigh(planeBlockSize, subY);
@@ -771,6 +772,19 @@ internal class Av1TileReader : IAv1TileReader
         bool hasAbove = partitionInfo.AvailableAbove;
         bool hasLeft = partitionInfo.AvailableLeft;
 
+        // libaom pred_common.h:355-361: when the neighbor is inter (treats IBC as inter), the
+        // tx_size context query uses the neighbor's full block dimension instead of the
+        // txfm_context value, which only carries per-leaf state for fragmented var-tx blocks.
+        if (hasAbove && partitionInfo.AboveModeInfo?.UseIntraBlockCopy == true)
+        {
+            above = partitionInfo.AboveModeInfo.BlockSize.GetWidth() >= maxTransformSize.GetWidth() ? 1 : 0;
+        }
+
+        if (hasLeft && partitionInfo.LeftModeInfo?.UseIntraBlockCopy == true)
+        {
+            left = partitionInfo.LeftModeInfo.BlockSize.GetHeight() >= maxTransformSize.GetHeight() ? 1 : 0;
+        }
+
         if (hasAbove && hasLeft)
         {
             context = above + left;
@@ -797,15 +811,230 @@ internal class Av1TileReader : IAv1TileReader
     /// <remarks>SVT: read_block_tx_size</remarks>
     private void ReadBlockTransformSize(ref Av1SymbolDecoder reader, Point modeInfoLocation, Av1PartitionInfo partitionInfo, Av1SuperblockInfo superblockInfo, Av1TileInfo tileInfo)
     {
-        Av1BlockSize blockSize = partitionInfo.ModeInfo.BlockSize;
+        Av1BlockModeInfo modeInfo = partitionInfo.ModeInfo;
+        Av1BlockSize blockSize = modeInfo.BlockSize;
         int block4x4Width = blockSize.Get4x4WideCount();
         int block4x4Height = blockSize.Get4x4HighCount();
 
-        // First condition in spec is for INTER frames, implemented only the INTRA condition.
-        Av1TransformSize transformSize = this.ReadTransformSize(ref reader, partitionInfo, superblockInfo, tileInfo, true);
+        // libaom decodeframe.c:1180: var-tx applies when the block is inter (or intra-block-copy),
+        // signals tx size, isn't skipped, isn't lossless, and tx_mode is select.
+        bool interBlockTx = modeInfo.UseIntraBlockCopy; // intra frame: only IBC counts as inter for tx purposes.
+        bool blockSignalsTxSize = blockSize > Av1BlockSize.Block4x4;
+        bool isLossless = this.FrameHeader.LosslessArray[modeInfo.SegmentId];
+        if (this.FrameHeader.TransformMode == Av1TransformMode.Select && blockSignalsTxSize &&
+            !modeInfo.Skip && interBlockTx && !isLossless)
+        {
+            Av1TransformSize maxTxSize = blockSize.GetMaximumTransformSize();
+            int aboveBaseColumn = modeInfoLocation.X - tileInfo.ModeInfoColumnStart;
+            int leftBaseRow = modeInfoLocation.Y - superblockInfo.ModeInfoPosition.Y;
+            int blockWide4x4 = blockSize.Get4x4WideCount();
+            int blockHigh4x4 = blockSize.Get4x4HighCount();
+            int leafStepCols = maxTxSize.Get4x4WideCount();
+            int leafStepRows = maxTxSize.Get4x4HighCount();
+            List<VarTxLeaf> leaves = [];
+            for (int idy = 0; idy < blockHigh4x4; idy += leafStepRows)
+            {
+                for (int idx = 0; idx < blockWide4x4; idx += leafStepCols)
+                {
+                    this.ReadVarTxLeaves(ref reader, blockSize, maxTxSize, depth: 0, idy, idx, aboveBaseColumn, leftBaseRow, leaves);
+                }
+            }
+
+            this.UpdateTransformInfoFromLeaves(partitionInfo, superblockInfo, blockSize, leaves);
+            return;
+        }
+
+        // libaom decodeframe.c:1192 calls read_tx_size with allow_select_inter=!skip_txfm. Intra
+        // blocks ignore this gate (is_inter=0 short-circuits the condition), but IBC blocks fall
+        // here only when vartx didn't take them — which means skip=1 — so they must NOT read.
+        bool allowSelect = !modeInfo.UseIntraBlockCopy;
+        Av1TransformSize transformSize = this.ReadTransformSize(ref reader, partitionInfo, superblockInfo, tileInfo, allowSelect);
         this.aboveNeighborContext.UpdateTransformation(modeInfoLocation, tileInfo, transformSize, blockSize, false);
         this.leftNeighborContext.UpdateTransformation(modeInfoLocation, superblockInfo, transformSize, blockSize, false);
         this.UpdateTransformInfo(partitionInfo, superblockInfo, blockSize, transformSize);
+    }
+
+    /// <summary>
+    /// Mirrors libaom <c>read_tx_size_vartx</c> (decodeframe.c:1064-1125). Recursively reads
+    /// the txfm_partition_cdf split flag at each level (max depth = MAX_VARTX_DEPTH). Each
+    /// emitted leaf records its (blkRow, blkCol, txSize) and updates the above/left tx
+    /// context per leaf so neighboring leaves see the correct partition context.
+    /// </summary>
+    private void ReadVarTxLeaves(
+        ref Av1SymbolDecoder reader,
+        Av1BlockSize blockSize,
+        Av1TransformSize txSize,
+        int depth,
+        int blkRow,
+        int blkCol,
+        int aboveBaseColumn,
+        int leftBaseRow,
+        List<VarTxLeaf> leaves)
+    {
+        int blockHigh4x4 = blockSize.Get4x4HighCount();
+        int blockWide4x4 = blockSize.Get4x4WideCount();
+        if (blkRow >= blockHigh4x4 || blkCol >= blockWide4x4)
+        {
+            return;
+        }
+
+        DebugGuard.MustBeGreaterThan((int)txSize, (int)Av1TransformSize.Size4x4, nameof(txSize));
+
+        bool isSplit = false;
+        if (depth < Av1Constants.MaxVarTransform)
+        {
+            int aboveTxWide = this.aboveNeighborContext.AboveTransformWidth[aboveBaseColumn + blkCol];
+            int leftTxHigh = this.leftNeighborContext.LeftTransformHeight[leftBaseRow + blkRow];
+            int ctx = Av1SymbolContextHelper.GetTransformPartitionContext(aboveTxWide, leftTxHigh, blockSize, txSize);
+            isSplit = reader.ReadTransformPartitionSplit(ctx);
+        }
+
+        if (!isSplit)
+        {
+            leaves.Add(new VarTxLeaf(blkRow, blkCol, txSize));
+            this.UpdateVarTxContext(aboveBaseColumn + blkCol, leftBaseRow + blkRow, txSize, txSize);
+            return;
+        }
+
+        Av1TransformSize subTxSize = txSize.GetSubSize();
+        if (subTxSize == Av1TransformSize.Size4x4)
+        {
+            // libaom decodeframe.c:1101 emits one tx-size record but coefficient decode iterates
+            // (txSize wide / 4x4) x (txSize high / 4x4) TBs at sub-size. Expand to leaf-per-TB so
+            // ParseTransformBlock visits every 4x4 sub-block.
+            int rows4 = txSize.Get4x4HighCount();
+            int cols4 = txSize.Get4x4WideCount();
+            for (int row = 0; row < rows4; row++)
+            {
+                for (int col = 0; col < cols4; col++)
+                {
+                    leaves.Add(new VarTxLeaf(blkRow + row, blkCol + col, subTxSize));
+                }
+            }
+
+            this.UpdateVarTxContext(aboveBaseColumn + blkCol, leftBaseRow + blkRow, subTxSize, txSize);
+            return;
+        }
+
+        int subRows = subTxSize.Get4x4HighCount();
+        int subCols = subTxSize.Get4x4WideCount();
+        int rows = txSize.Get4x4HighCount();
+        int cols = txSize.Get4x4WideCount();
+        for (int row = 0; row < rows; row += subRows)
+        {
+            for (int col = 0; col < cols; col += subCols)
+            {
+                this.ReadVarTxLeaves(ref reader, blockSize, subTxSize, depth + 1, blkRow + row, blkCol + col, aboveBaseColumn, leftBaseRow, leaves);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Mirrors libaom <c>txfm_partition_update</c> (av1_common_int.h:1686): stamps the chosen
+    /// leaf size into the above/left tx-context arrays over the txb_size span (in 4x4 units).
+    /// </summary>
+    private void UpdateVarTxContext(int aboveStartColumn, int leftStartRow, Av1TransformSize leafSize, Av1TransformSize txbSize)
+    {
+        int txbRows = txbSize.Get4x4HighCount();
+        int txbCols = txbSize.Get4x4WideCount();
+        int leafW = leafSize.GetWidth();
+        int leafH = leafSize.GetHeight();
+        Array.Fill(this.aboveNeighborContext.AboveTransformWidth, leafW, aboveStartColumn, txbCols);
+        Array.Fill(this.leftNeighborContext.LeftTransformHeight, leafH, leftStartRow, txbRows);
+    }
+
+    private void UpdateTransformInfoFromLeaves(Av1PartitionInfo partitionInfo, Av1SuperblockInfo superblockInfo, Av1BlockSize blockSize, List<VarTxLeaf> leaves)
+    {
+        int transformInfoYIndex = partitionInfo.ModeInfo.FirstTransformLocation[(int)Av1PlaneType.Y];
+        int transformInfoUvIndex = partitionInfo.ModeInfo.FirstTransformLocation[(int)Av1PlaneType.Uv];
+        Span<Av1TransformInfo> lumaTransformInfo = superblockInfo.GetTransformInfoY();
+        Span<Av1TransformInfo> chromaTransformInfo = superblockInfo.GetTransformInfoUv();
+        bool subX = this.SequenceHeader.ColorConfig.SubSamplingX;
+        bool subY = this.SequenceHeader.ColorConfig.SubSamplingY;
+        bool isLossLess = this.FrameHeader.LosslessArray[partitionInfo.ModeInfo.SegmentId];
+        Av1TransformSize transformSizeUv = isLossLess ? Av1TransformSize.Size4x4 : blockSize.GetMaxUvTransformSize(subX, subY);
+        int maxBlockWide = partitionInfo.GetMaxBlockWide(blockSize, false);
+        int maxBlockHigh = partitionInfo.GetMaxBlockHigh(blockSize, false);
+
+        // libaom: for IBC blocks (always <= 64x64), the entire block is a single forceSplitCount
+        // mode-unit. Place every Y-plane leaf into bucket 0; reset the others.
+        int totalLumaTransformUnitCount = leaves.Count;
+        for (int i = 0; i < leaves.Count; i++)
+        {
+            VarTxLeaf leaf = leaves[i];
+            lumaTransformInfo[transformInfoYIndex++] = new Av1TransformInfo(leaf.Size, leaf.BlockColumn, leaf.BlockRow);
+        }
+
+        this.transformUnitCount[(int)Av1Plane.Y][0] = totalLumaTransformUnitCount;
+        this.transformUnitCount[(int)Av1Plane.Y][1] = 0;
+        this.transformUnitCount[(int)Av1Plane.Y][2] = 0;
+        this.transformUnitCount[(int)Av1Plane.Y][3] = 0;
+
+        int totalChromaTransformUnitCount = 0;
+        if (!this.SequenceHeader.ColorConfig.IsMonochrome && partitionInfo.IsChroma)
+        {
+            int stepCol = transformSizeUv.Get4x4WideCount();
+            int stepRow = transformSizeUv.Get4x4HighCount();
+            int unitHeight = Av1Math.RoundPowerOf2(maxBlockHigh, subY ? 1 : 0);
+            int unitWidth = Av1Math.RoundPowerOf2(maxBlockWide, subX ? 1 : 0);
+            for (int blockRow = 0; blockRow < unitHeight; blockRow += stepRow)
+            {
+                for (int blockColumn = 0; blockColumn < unitWidth; blockColumn += stepCol)
+                {
+                    chromaTransformInfo[transformInfoUvIndex++] = new Av1TransformInfo(transformSizeUv, blockColumn, blockRow);
+                    totalChromaTransformUnitCount++;
+                }
+            }
+
+            this.transformUnitCount[(int)Av1Plane.U][0] = totalChromaTransformUnitCount;
+            this.transformUnitCount[(int)Av1Plane.V][0] = totalChromaTransformUnitCount;
+            this.transformUnitCount[(int)Av1Plane.U][1] = 0;
+            this.transformUnitCount[(int)Av1Plane.V][1] = 0;
+            this.transformUnitCount[(int)Av1Plane.U][2] = 0;
+            this.transformUnitCount[(int)Av1Plane.V][2] = 0;
+            this.transformUnitCount[(int)Av1Plane.U][3] = 0;
+            this.transformUnitCount[(int)Av1Plane.V][3] = 0;
+        }
+
+        // V slots are independent storage for V's CodeBlockFlag/Type. Field values are copied
+        // by constructing a new instance from each U entry — assigning the reference would
+        // alias the V slot to U so that any later writes (e.g. CodeBlockFlag from V's parse)
+        // would also corrupt the U slot.
+        if (totalChromaTransformUnitCount != 0)
+        {
+            int originalIndex = transformInfoUvIndex - totalChromaTransformUnitCount;
+            for (int i = 0; i < totalChromaTransformUnitCount; i++)
+            {
+                chromaTransformInfo[transformInfoUvIndex + i] = new Av1TransformInfo(chromaTransformInfo[originalIndex + i]);
+            }
+        }
+
+        partitionInfo.ModeInfo.TransformUnitsCount[(int)Av1PlaneType.Y] = totalLumaTransformUnitCount;
+        partitionInfo.ModeInfo.TransformUnitsCount[(int)Av1PlaneType.Uv] = totalChromaTransformUnitCount;
+        this.firstTransformOffset[(int)Av1PlaneType.Y] += totalLumaTransformUnitCount;
+        this.firstTransformOffset[(int)Av1PlaneType.Uv] += totalChromaTransformUnitCount << 1;
+    }
+
+    private static Av1TransformType LookupYTransformTypeForChroma(Av1PartitionInfo partitionInfo, Av1SuperblockInfo superblockInfo, int chromaBlockRow, int chromaBlockColumn, int subX, int subY)
+    {
+        int yRow = chromaBlockRow << subY;
+        int yColumn = chromaBlockColumn << subX;
+        int firstYIndex = superblockInfo.TransformInfoIndexY + partitionInfo.ModeInfo.FirstTransformLocation[(int)Av1PlaneType.Y];
+        int yCount = partitionInfo.ModeInfo.TransformUnitsCount[(int)Av1PlaneType.Y];
+        Span<Av1TransformInfo> lumaTransformInfo = superblockInfo.GetTransformInfoY();
+        for (int i = 0; i < yCount; i++)
+        {
+            Av1TransformInfo leaf = lumaTransformInfo[firstYIndex + i];
+            int leafW = leaf.Size.Get4x4WideCount();
+            int leafH = leaf.Size.Get4x4HighCount();
+            if (yColumn >= leaf.OffsetX && yColumn < leaf.OffsetX + leafW &&
+                yRow >= leaf.OffsetY && yRow < leaf.OffsetY + leafH)
+            {
+                return leaf.Type;
+            }
+        }
+
+        return Av1TransformType.DctDct;
     }
 
     private unsafe void UpdateTransformInfo(Av1PartitionInfo partitionInfo, Av1SuperblockInfo superblockInfo, Av1BlockSize blockSize, Av1TransformSize transformSize)
@@ -884,7 +1113,6 @@ internal class Av1TileReader : IAv1TileReader
             }
         }
 
-        // Cr Transform Info Update from Cb.
         if (totalChromaTransformUnitCount != 0)
         {
             DebugGuard.IsTrue(
@@ -892,13 +1120,9 @@ internal class Av1TileReader : IAv1TileReader
                 partitionInfo.ModeInfo.FirstTransformLocation[(int)Av1PlaneType.Uv],
                 nameof(totalChromaTransformUnitCount));
             int originalIndex = transformInfoUvIndex - totalChromaTransformUnitCount;
-            ref Av1TransformInfo originalInfo = ref chromaTransformInfo[originalIndex];
-            ref Av1TransformInfo infoV = ref chromaTransformInfo[transformInfoUvIndex];
             for (int i = 0; i < totalChromaTransformUnitCount; i++)
             {
-                infoV = originalInfo;
-                originalInfo = ref Unsafe.Add(ref originalInfo, 1);
-                infoV = ref Unsafe.Add(ref infoV, 1);
+                chromaTransformInfo[transformInfoUvIndex + i] = new Av1TransformInfo(chromaTransformInfo[originalIndex + i]);
             }
         }
 
@@ -912,16 +1136,16 @@ internal class Av1TileReader : IAv1TileReader
     /// <summary>
     /// 5.11.6. Mode info syntax.
     /// </summary>
-    private void ReadModeInfo(ref Av1SymbolDecoder reader, Av1PartitionInfo partitionInfo)
+    private void ReadModeInfo(ref Av1SymbolDecoder reader, Av1PartitionInfo partitionInfo, Av1TileInfo tileInfo)
     {
         DebugGuard.IsTrue(this.FrameHeader.FrameType is ObuFrameType.KeyFrame or ObuFrameType.IntraOnlyFrame, "Only INTRA frames supported.");
-        this.ReadIntraFrameModeInfo(ref reader, partitionInfo);
+        this.ReadIntraFrameModeInfo(ref reader, partitionInfo, tileInfo);
     }
 
     /// <summary>
     /// 5.11.7. Intra frame mode info syntax.
     /// </summary>
-    private void ReadIntraFrameModeInfo(ref Av1SymbolDecoder reader, Av1PartitionInfo partitionInfo)
+    private void ReadIntraFrameModeInfo(ref Av1SymbolDecoder reader, Av1PartitionInfo partitionInfo, Av1TileInfo tileInfo)
     {
         if (this.FrameHeader.SegmentationParameters.SegmentIdPrecedesSkip)
         {
@@ -956,6 +1180,12 @@ internal class Av1TileReader : IAv1TileReader
         {
             partitionInfo.ModeInfo.YMode = Av1PredictionMode.DC;
             partitionInfo.ModeInfo.UvMode = Av1PredictionMode.DC;
+            Av1MotionVectorReader.AssignIntraBlockCopyMotionVector(
+                ref reader,
+                partitionInfo,
+                tileInfo,
+                this.SequenceHeader.SuperblockModeInfoSize,
+                this.FrameInfo.GetModeInfoAtMiPosition);
         }
         else
         {
@@ -1256,12 +1486,6 @@ internal class Av1TileReader : IAv1TileReader
         }
     }
 
-    private bool IsInside(int rowIndex, int columnIndex) =>
-        columnIndex >= this.FrameHeader.TilesInfo.TileColumnCount &&
-        columnIndex < this.FrameHeader.TilesInfo.TileColumnCount &&
-        rowIndex >= this.FrameHeader.TilesInfo.TileRowCount &&
-        rowIndex < this.FrameHeader.TilesInfo.TileRowCount;
-
     /*
     private static bool IsChroma(int rowIndex, int columnIndex, Av1BlockModeInfo blockMode, bool subSamplingX, bool subSamplingY)
     {
@@ -1336,7 +1560,7 @@ internal class Av1TileReader : IAv1TileReader
                 case Av1PartitionType.VerticalB:
                     this.aboveNeighborContext.UpdatePartition(modeInfoLocation, tileLoc, subSize, subSize);
                     this.leftNeighborContext.UpdatePartition(modeInfoLocation, superblockInfo, subSize, subSize);
-                    Point locVerticalB = new(modeInfoLocation.X, modeInfoLocation.Y + hbs);
+                    Point locVerticalB = new(modeInfoLocation.X + hbs, modeInfoLocation.Y);
                     this.aboveNeighborContext.UpdatePartition(locVerticalB, tileLoc, blockSize2, subSize);
                     this.leftNeighborContext.UpdatePartition(locVerticalB, superblockInfo, blockSize2, subSize);
                     break;
@@ -1345,4 +1569,6 @@ internal class Av1TileReader : IAv1TileReader
             }
         }
     }
+
+    private readonly record struct VarTxLeaf(int BlockRow, int BlockColumn, Av1TransformSize Size);
 }

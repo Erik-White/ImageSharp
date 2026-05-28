@@ -7,6 +7,8 @@ using SixLabors.ImageSharp.Formats.Heif.Av1.Pipeline.Quantification;
 using SixLabors.ImageSharp.Formats.Heif.Av1.Prediction;
 using SixLabors.ImageSharp.Formats.Heif.Av1.Prediction.ChromaFromLuma;
 using SixLabors.ImageSharp.Formats.Heif.Av1.Tiling;
+using SixLabors.ImageSharp.Formats.Heif.Av1.Tiling.MotionVector;
+using SixLabors.ImageSharp.Memory;
 
 namespace SixLabors.ImageSharp.Formats.Heif.Av1.Transform;
 
@@ -88,6 +90,20 @@ internal class Av1BlockDecoder
         Av1PredictionDecoder predictionDecoder = new(this.sequenceHeader, this.frameHeader, false);
         Av1InverseQuantizer inverseQuantizer = this.inverseQuantizer;
 
+        if (modeInfo.UseIntraBlockCopy)
+        {
+            Av1IntraBlockCopyValidator.Validate(
+                modeInfo.DisplacementVector,
+                tileInfo,
+                this.sequenceHeader.SuperblockSizeLog2 - Av1Constants.ModeInfoSizeLog2,
+                partitionInfo.RowIndex,
+                partitionInfo.ColumnIndex,
+                blockSize,
+                hasChroma,
+                colorConfig.SubSamplingX,
+                colorConfig.SubSamplingY);
+        }
+
         for (int plane = 0; plane < colorConfig.PlaneCount; plane++)
         {
             int subX = (plane > 0) && colorConfig.SubSamplingX ? 1 : 0;
@@ -100,9 +116,9 @@ internal class Av1BlockDecoder
 
             int transformInfoIndex = plane switch
             {
-                2 => superblockInfo.TransformInfoIndexUv + modeInfo.FirstTransformLocation[plane - 1] + chromaTransformUnitCount,
-                1 => superblockInfo.TransformInfoIndexY + modeInfo.FirstTransformLocation[plane],
-                0 => superblockInfo.TransformInfoIndexY + modeInfo.FirstTransformLocation[plane],
+                2 => superblockInfo.TransformInfoIndexUv + modeInfo.FirstTransformLocation[(int)Av1PlaneType.Uv] + chromaTransformUnitCount,
+                1 => superblockInfo.TransformInfoIndexUv + modeInfo.FirstTransformLocation[(int)Av1PlaneType.Uv],
+                0 => superblockInfo.TransformInfoIndexY + modeInfo.FirstTransformLocation[(int)Av1PlaneType.Y],
                 _ => throw new InvalidImageContentException("Maximum of 3 color planes")
             };
             Span<Av1TransformInfo> transformInfo = this.frameInfo.GetSuperblockTransform(plane, superblockInfo.Position)[transformInfoIndex..];
@@ -153,7 +169,36 @@ internal class Av1BlockDecoder
                     }*/
                 }
 
-                // if (!inter_block)
+                if (modeInfo.UseIntraBlockCopy)
+                {
+                    Buffer2D<byte> planeBuffer = (Av1Plane)plane switch
+                    {
+                        Av1Plane.Y => this.frameBuffer.BufferY!,
+                        Av1Plane.U => this.frameBuffer.BufferCb!,
+                        _ => this.frameBuffer.BufferCr!,
+                    };
+                    Av1MotionVector dv = modeInfo.DisplacementVector;
+
+                    // Chroma uses the same DV but indexes a subsampled plane, so divide
+                    // the 1/8-pel vector by (8 << sub) to land on plane-local pixels.
+                    int dvRowPixels = dv.Row >> (3 + subY);
+                    int dvColPixels = dv.Col >> (3 + subX);
+                    int tuWidth = transformSize.GetWidth();
+                    int tuHeight = transformSize.GetHeight();
+                    int tuOriginX = (this.frameBuffer.OriginX >> subX) + pixelPosition.X +
+                        (transformInfo[0].OffsetX << Av1Constants.ModeInfoSizeLog2);
+                    int tuOriginY = (this.frameBuffer.OriginY >> subY) + pixelPosition.Y +
+                        (transformInfo[0].OffsetY << Av1Constants.ModeInfoSizeLog2);
+                    Av1IntraBlockCopyReconstructor.Copy(
+                        planeBuffer,
+                        srcX: tuOriginX + dvColPixels,
+                        srcY: tuOriginY + dvRowPixels,
+                        dstX: tuOriginX,
+                        dstY: tuOriginY,
+                        width: tuWidth,
+                        height: tuHeight);
+                }
+                else
                 {
                     // SVT: svt_av1_predict_intra
                     predictionDecoder.Decode(

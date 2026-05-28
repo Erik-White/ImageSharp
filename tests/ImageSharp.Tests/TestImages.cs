@@ -1240,6 +1240,23 @@ public static class TestImages
 
         // Extremely small image, 4x4 pixels with a single solid color.
         public const string Orange4x4 = "Heif/Orange4x4.avif";
+
+        // AOMedia conformance test vector av1-1-b8-16-intra_only-intrabc-extreme-dv.ivf:
+        // intra-only stream constructed by AOMedia specifically to exercise IBC with
+        // displacement vectors at the spec extremes. IVF container, not AVIF.
+        public const string IntraBcExtremeDvIvf = "Heif/intrabc-extreme-dv.ivf";
+
+        // 256x256 8-bit 4:2:0 IVF authored from a tiled-glyph PNG via avifenc with
+        // tune-content=screen + enable-intrabc=1. libaom emits 29 valid IBC blocks and
+        // decodes cleanly; reference YUV is at ReferenceOutput/Heif/Av1/ibc-clean-256.frame0.yuv.
+        public const string IbcClean256Ivf = "Heif/ibc-clean-256.ivf";
+
+        // 256x256 8-bit monochrome (Cmono) IVF authored via aomenc with --monochrome
+        // --enable-intrabc=1 --tune-content=screen. libaom emits 4 valid IBC blocks.
+        // Exercises the IsMonochrome branch (single-plane allocations, skipped UV
+        // mode parse) that the 4:2:0 fixtures don't cover.
+        // Reference Y plane at ReferenceOutput/Heif/Av1/mono-ibc-256.frame0.yuv.
+        public const string MonoIbc256Ivf = "Heif/mono-ibc-256.ivf";
     }
 
     public static class Ico

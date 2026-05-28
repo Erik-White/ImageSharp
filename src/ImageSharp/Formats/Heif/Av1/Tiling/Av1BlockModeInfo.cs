@@ -2,6 +2,7 @@
 // Licensed under the Six Labors Split License.
 
 using SixLabors.ImageSharp.Formats.Heif.Av1.Prediction;
+using SixLabors.ImageSharp.Formats.Heif.Av1.Tiling.MotionVector;
 
 namespace SixLabors.ImageSharp.Formats.Heif.Av1.Tiling;
 
@@ -11,18 +12,21 @@ internal class Av1BlockModeInfo
 
     private int[] paletteSize;
 
-    public Av1BlockModeInfo(int numPlanes, Av1BlockSize blockSize, Point positionInSuperblock)
+    public Av1BlockModeInfo(Av1BlockSize blockSize, Point positionInSuperblock)
     {
         this.BlockSize = blockSize;
         this.PositionInSuperblock = positionInSuperblock;
-        this.AngleDelta = new int[numPlanes - 1];
-        this.paletteSize = new int[numPlanes - 1];
+
+        // Two slots per array — one per Av1PlaneType (Y, Uv). The UV slot stays
+        // unread in monochrome but the parser unconditionally writes both.
+        this.AngleDelta = new int[2];
+        this.paletteSize = new int[2];
         this.PaletteColorsY = [];
         this.PaletteColorsU = [];
         this.PaletteColorsV = [];
         this.FilterIntraModeInfo = new();
-        this.FirstTransformLocation = new int[numPlanes - 1];
-        this.TransformUnitsCount = new int[numPlanes - 1];
+        this.FirstTransformLocation = new int[2];
+        this.TransformUnitsCount = new int[2];
     }
 
     public Av1BlockSize BlockSize { get; }
@@ -46,6 +50,13 @@ internal class Av1BlockModeInfo
     public Av1PredictionMode UvMode { get; set; }
 
     public bool UseIntraBlockCopy { get; set; }
+
+    /// <summary>
+    /// Gets or sets the displacement vector for an intra-block-copy block.
+    /// 1/8-pel units; low 3 bits are zero (integer-pel only). Default zero
+    /// when the block is not IBC or before assignment.
+    /// </summary>
+    public Av1MotionVector DisplacementVector { get; set; }
 
     public int ChromaFromLumaAlphaIndex { get; set; }
 
@@ -81,6 +92,29 @@ internal class Av1BlockModeInfo
     /// Gets or sets the V palette colors (length == GetPaletteSize(Uv); not sorted, U is the cache key).
     /// </summary>
     public ushort[] PaletteColorsV { get; set; }
+
+    /// <summary>
+    /// Gets or sets the per-sample color index map for the Y plane, in row-major order
+    /// with stride <see cref="ColorMapWidthY"/>. Empty when the block does not use a Y palette.
+    /// </summary>
+    public byte[] ColorIndexMapY { get; set; } = [];
+
+    /// <summary>
+    /// Gets or sets the per-sample color index map shared by the U and V planes, in row-major
+    /// order with stride <see cref="ColorMapWidthUv"/>. Empty when the block does not use a UV palette.
+    /// </summary>
+    public byte[] ColorIndexMapUv { get; set; } = [];
+
+    /// <summary>
+    /// Gets or sets the row stride of <see cref="ColorIndexMapY"/> in samples. Equals the block
+    /// plane width (with chroma 4-sample padding when applicable, though Y is never padded).
+    /// </summary>
+    public int ColorMapWidthY { get; set; }
+
+    /// <summary>
+    /// Gets or sets the row stride of <see cref="ColorIndexMapUv"/> in samples.
+    /// </summary>
+    public int ColorMapWidthUv { get; set; }
 
     public int GetPaletteSize(Av1Plane plane) => this.paletteSize[Math.Min(1, (int)plane)];
 

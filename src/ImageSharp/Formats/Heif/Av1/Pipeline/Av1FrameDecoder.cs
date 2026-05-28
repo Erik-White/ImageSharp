@@ -32,9 +32,13 @@ internal class Av1FrameDecoder : IAv1FrameDecoder
 
     public void DecodeFrame()
     {
-        for (int column = 0; column < this.frameHeader.TilesInfo.TileColumnCount; column++)
+        ObuTileGroupHeader tilesInfo = this.frameHeader.TilesInfo;
+        for (int tileRow = 0; tileRow < tilesInfo.TileRowCount; tileRow++)
         {
-            this.DecodeFrameTiles(column);
+            for (int tileColumn = 0; tileColumn < tilesInfo.TileColumnCount; tileColumn++)
+            {
+                this.DecodeTile(tileRow, tileColumn);
+            }
         }
 
         bool doLoopRestoration = false;
@@ -59,47 +63,29 @@ internal class Av1FrameDecoder : IAv1FrameDecoder
     }
 
     /// <summary>
-    /// SVT: decode_tile
+    /// SVT: decode_tile / decode_tile_row.
+    /// Mirrors Av1TileReader.ReadTile so reconstruction visits the same superblock grid the parser populated.
     /// </summary>
-    private void DecodeFrameTiles(int tileColumn)
+    private void DecodeTile(int tileRow, int tileColumn)
     {
-        int tileRowCount = this.frameHeader.TilesInfo.TileRowCount;
-        int tileCount = tileRowCount * this.frameHeader.TilesInfo.TileColumnCount;
-        for (int row = 0; row < tileRowCount; row++)
+        ObuTileGroupHeader tilesInfo = this.frameHeader.TilesInfo;
+        int superblockModeInfoSize = this.sequenceHeader.SuperblockModeInfoSize;
+        int modeInfoRowStart = tilesInfo.TileRowStartModeInfo[tileRow];
+        int modeInfoRowEnd = tilesInfo.TileRowStartModeInfo[tileRow + 1];
+        int modeInfoColumnStart = tilesInfo.TileColumnStartModeInfo[tileColumn];
+        int modeInfoColumnEnd = tilesInfo.TileColumnStartModeInfo[tileColumn + 1];
+        Av1TileInfo tileInfo = new(tileRow, tileColumn, this.frameHeader);
+
+        for (int modeInfoRow = modeInfoRowStart; modeInfoRow < modeInfoRowEnd; modeInfoRow += superblockModeInfoSize)
         {
-            int superblockRowTileStart = this.frameHeader.TilesInfo.TileRowStartModeInfo[row] << Av1Constants.ModeInfoSizeLog2 >>
-                this.sequenceHeader.SuperblockSizeLog2;
-            int superblockRow = row + superblockRowTileStart;
-
-            int modeInfoRow = superblockRow << this.sequenceHeader.SuperblockSizeLog2 >> Av1Constants.ModeInfoSizeLog2;
-
-            // EbColorConfig* color_config = &dec_mod_ctxt->seq_header->color_config;
-            // svt_cfl_init(&dec_mod_ctxt->cfl_ctx, color_config);
-            this.DecodeTileRow(row, tileColumn, modeInfoRow, superblockRow);
-        }
-    }
-
-    /// <summary>
-    /// SVT: decode_tile_row
-    /// </summary>
-    private void DecodeTileRow(int tileRow, int tileColumn, int modeInfoRow, int superblockRow)
-    {
-        int superblockModeInfoSizeLog2 = this.sequenceHeader.SuperblockSizeLog2 - Av1Constants.ModeInfoSizeLog2;
-        int superblockRowTileStart = this.frameHeader.TilesInfo.TileRowStartModeInfo[tileRow] << Av1Constants.ModeInfoSizeLog2 >>
-            this.sequenceHeader.SuperblockSizeLog2;
-
-        int superblockRowInTile = superblockRow - superblockRowTileStart;
-
-        ObuTileGroupHeader tileInfo = this.frameHeader.TilesInfo;
-        for (int modeInfoColumn = tileInfo.TileColumnStartModeInfo[tileColumn]; modeInfoColumn < tileInfo.TileColumnStartModeInfo[tileColumn + 1];
-             modeInfoColumn += this.sequenceHeader.SuperblockModeInfoSize)
-        {
-            int superblockColumn = modeInfoColumn << Av1Constants.ModeInfoSizeLog2 >> this.sequenceHeader.SuperblockSizeLog2;
-
-            Av1SuperblockInfo superblockInfo = this.frameInfo.GetSuperblock(new Point(superblockColumn, superblockRow));
-
-            Point modeInfoPosition = new(modeInfoColumn, modeInfoRow);
-            this.DecodeSuperblock(modeInfoPosition, superblockInfo, new Av1TileInfo(tileRow, tileColumn, this.frameHeader));
+            int superblockRow = modeInfoRow << Av1Constants.ModeInfoSizeLog2 >> this.sequenceHeader.SuperblockSizeLog2;
+            for (int modeInfoColumn = modeInfoColumnStart; modeInfoColumn < modeInfoColumnEnd; modeInfoColumn += superblockModeInfoSize)
+            {
+                int superblockColumn = modeInfoColumn << Av1Constants.ModeInfoSizeLog2 >> this.sequenceHeader.SuperblockSizeLog2;
+                Av1SuperblockInfo superblockInfo = this.frameInfo.GetSuperblock(new Point(superblockColumn, superblockRow));
+                Point modeInfoPosition = new(modeInfoColumn, modeInfoRow);
+                this.DecodeSuperblock(modeInfoPosition, superblockInfo, tileInfo);
+            }
         }
     }
 

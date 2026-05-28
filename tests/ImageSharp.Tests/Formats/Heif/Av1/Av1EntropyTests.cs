@@ -6,6 +6,7 @@ using SixLabors.ImageSharp.Formats.Heif.Av1;
 using SixLabors.ImageSharp.Formats.Heif.Av1.Entropy;
 using SixLabors.ImageSharp.Formats.Heif.Av1.Prediction;
 using SixLabors.ImageSharp.Formats.Heif.Av1.Tiling;
+using SixLabors.ImageSharp.Formats.Heif.Av1.Tiling.MotionVector;
 using SixLabors.ImageSharp.Formats.Heif.Av1.Transform;
 using SixLabors.ImageSharp.Memory;
 
@@ -373,7 +374,7 @@ public class Av1EntropyTests
         Av1SymbolDecoder decoder = new(Configuration.Default, encoded.GetSpan(), BaseQIndex);
         for (int i = 0; i < values.Length; i++)
         {
-            actuals[i] = decoder.ReadTransformType(transformSizeContext, true, false, BaseQIndex, filterIntraMode, intraDirection);
+            actuals[i] = decoder.ReadTransformType(transformSizeContext, false /* isInter */, true, false, BaseQIndex, filterIntraMode, intraDirection);
         }
 
         // Assert
@@ -555,6 +556,48 @@ public class Av1EntropyTests
 
         // Assert
         Assert.Equal(values, actuals);
+    }
+
+    public static TheoryData<short, short> GetIntraBlockCopyMvData()
+    {
+        // forceIntegerMv=true ⇒ values must be multiples of 8. Cases exercise
+        // zero joint, single-component, both signs, class-0 boundary (8, 16),
+        // and progressively larger classes up through class 10 (16384).
+        TheoryData<short, short> data = [];
+        data.Add(0, 0);
+        data.Add(8, 0);
+        data.Add(0, -8);
+        data.Add(-8, 16);
+        data.Add(120, -56);
+        data.Add(128, 256);
+        data.Add(-1024, 2048);
+        data.Add(4096, -4096);
+        data.Add(8192, -8192);
+        data.Add(16384, -16384);
+        data.Add(-16384, 16384);
+        data.Add(16, -16);
+        data.Add(-32, 32);
+        data.Add(-64, 64);
+        data.Add(8, 8);
+        return data;
+    }
+
+    [Theory]
+    [MemberData(nameof(GetIntraBlockCopyMvData))]
+    public void RoundTripMotionVectorIntraBlockCopy(short row, short col)
+    {
+        Configuration configuration = Configuration.Default;
+        Av1SymbolEncoder encoder = new(configuration, 100 / 8, BaseQIndex);
+        Av1MotionVector mv = new(row, col);
+
+        Av1MotionVectorWriter.WriteMotionVectorDifference(encoder, mv, forceIntegerMv: true, allowHighPrecisionMv: false, useDisplacementVectorContext: true);
+
+        using IMemoryOwner<byte> encoded = encoder.Exit();
+        Av1SymbolDecoder decoder = new(Configuration.Default, encoded.GetSpan(), BaseQIndex);
+        Av1MotionVector roundtrip = Av1MotionVectorReader.ReadMotionVectorDifference(
+            ref decoder, forceIntegerMv: true, allowHighPrecisionMv: false, useDisplacementVectorContext: true);
+
+        Assert.Equal(mv, roundtrip);
     }
 
     public static TheoryData<int> GetRangeData(int count)

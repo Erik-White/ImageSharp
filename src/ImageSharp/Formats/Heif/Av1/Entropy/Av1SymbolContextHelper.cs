@@ -19,23 +19,31 @@ internal static class Av1SymbolContextHelper
         [7, 8, 9, 12, 10, 11, 13, 14, 15, 0, 1, 2, 3, 4, 5, 6], // All 16, inter set 1
     ];
 
-    // Maps tx set types to the distribution indices. INTRA values only
-    private static readonly int[] ExtendedTransformSetToIndex = [0, -1, 2, 1, -1, -1];
+    // libaom ext_tx_set_index[is_inter][set_type]: maps TxSetType to the eset slot in the
+    // corresponding (intra or inter) ext_tx_cdf array. -1 means the set is invalid for that
+    // mode and the call site must not read a symbol.
+    private static readonly int[][] ExtendedTransformSetToIndex =
+    [
+        [0, -1, 2, 1, -1, -1], // intra
+        [0, 3, -1, -1, 2, 1] // inter
+    ];
 
     /// <summary>
     /// Section 5.11.48: Transform type syntax
     /// </summary>
     public static readonly Av1TransformType[][] ExtendedTransformInverse = [
         [Av1TransformType.DctDct], // DCT only
-        [], // Inter set 3
+        [Av1TransformType.Identity, Av1TransformType.DctDct], // Inter set 3 (DCT+IDTX)
         [Av1TransformType.Identity, Av1TransformType.DctDct, Av1TransformType.AdstAdst, Av1TransformType.AdstDct, Av1TransformType.DctAdst], // Intra set 2
         [Av1TransformType.Identity, Av1TransformType.DctDct, Av1TransformType.VerticalDct, Av1TransformType.HorizontalDct, Av1TransformType.AdstAdst, Av1TransformType.AdstDct, Av1TransformType.DctAdst], // Intra set 1
-        [], // Inter set 2
-        [], // All 16, inter set 1
+        [Av1TransformType.Identity, Av1TransformType.VerticalDct, Av1TransformType.HorizontalDct, Av1TransformType.DctDct, Av1TransformType.AdstDct, Av1TransformType.DctAdst, Av1TransformType.FlipAdstDct, Av1TransformType.DctFlipAdst, Av1TransformType.AdstAdst, Av1TransformType.FlipAdstFlipAdst, Av1TransformType.AdstFlipAdst, Av1TransformType.FlipAdstAdst], // Inter set 2 (DTT9+IDTX+1D-DCT)
+        [Av1TransformType.Identity, Av1TransformType.VerticalDct, Av1TransformType.HorizontalDct, Av1TransformType.VerticalAdst, Av1TransformType.HorizontalAdst, Av1TransformType.VerticalFlipAdst, Av1TransformType.HorizontalFlipAdst, Av1TransformType.DctDct, Av1TransformType.AdstDct, Av1TransformType.DctAdst, Av1TransformType.FlipAdstDct, Av1TransformType.DctFlipAdst, Av1TransformType.AdstAdst, Av1TransformType.FlipAdstFlipAdst, Av1TransformType.AdstFlipAdst, Av1TransformType.FlipAdstAdst], // All 16, inter set 1
     ];
 
     public static readonly int[] EndOfBlockOffsetBits = [0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
     public static readonly int[] EndOfBlockGroupStart = [0, 1, 2, 3, 5, 9, 17, 33, 65, 129, 257, 513];
+
+    private const int Av1TransformSizeCount = 5; // TX_SIZES (square sizes only)
     private static readonly byte[] EndOfBlockToPositionSmall = [
         0, 1, 2, // 0-2
         3, 3, // 3-4
@@ -66,6 +74,42 @@ internal static class Av1SymbolContextHelper
 
     internal static Av1TransformSize GetTransformSizeContext(Av1TransformSize originalSize)
         => (Av1TransformSize)(((int)originalSize.GetSquareSize() + (int)originalSize.GetSquareUpSize() + 1) >> 1);
+
+    /// <summary>
+    /// Mirrors libaom <c>txfm_partition_context</c> (av1_common_int.h:1749). Returns the
+    /// context index into <c>txfm_partition_cdf</c> (range 0..20).
+    /// </summary>
+    /// <param name="aboveTxWide">Width in pixels stored in above_txfm_context for this column.</param>
+    /// <param name="leftTxHigh">Height in pixels stored in left_txfm_context for this row.</param>
+    /// <param name="blockSize">Block size of the current MB.</param>
+    /// <param name="txSize">Current candidate transform size (must be &gt; 4x4).</param>
+    internal static int GetTransformPartitionContext(int aboveTxWide, int leftTxHigh, Av1BlockSize blockSize, Av1TransformSize txSize)
+    {
+        int txw = txSize.GetWidth();
+        int txh = txSize.GetHeight();
+        int above = aboveTxWide < txw ? 1 : 0;
+        int left = leftTxHigh < txh ? 1 : 0;
+
+        // Square up-mapped tx size of the largest dimension of the block.
+        int maxDim = Math.Max(blockSize.GetWidth(), blockSize.GetHeight());
+        Av1TransformSize maxTxSize = GetSquareTransformSize(maxDim);
+        Av1TransformSize txSizeSqrUp = txSize.GetSquareUpSize();
+
+        // libaom asserts max_tx_size >= TX_8X8; block_signals_txsize gates this for callers (bsize > 4x4).
+        int category =
+            ((txSizeSqrUp != maxTxSize && maxTxSize > Av1TransformSize.Size8x8) ? 1 : 0) +
+            ((Av1TransformSizeCount - 1 - (int)maxTxSize) * 2);
+        return (category * 3) + above + left;
+    }
+
+    private static Av1TransformSize GetSquareTransformSize(int dim) => dim switch
+    {
+        >= 64 => Av1TransformSize.Size64x64,
+        32 => Av1TransformSize.Size32x32,
+        16 => Av1TransformSize.Size16x16,
+        8 => Av1TransformSize.Size8x8,
+        _ => Av1TransformSize.Size4x4,
+    };
 
     internal static int RecordEndOfBlockPosition(int endOfBlockPoint, int endOfBlockExtra)
     {
@@ -239,21 +283,31 @@ internal static class Av1SymbolContextHelper
     /// <summary>
     /// SVT: get_ext_tx_set_type
     /// </summary>
-    internal static Av1TransformSetType GetExtendedTransformSetType(Av1TransformSize transformSize, bool useReducedSet)
+    internal static Av1TransformSetType GetExtendedTransformSetType(Av1TransformSize transformSize, bool isInter, bool useReducedSet)
     {
         Av1TransformSize squareUpSize = transformSize.GetSquareUpSize();
 
-        if (squareUpSize >= Av1TransformSize.Size32x32)
+        if (squareUpSize > Av1TransformSize.Size32x32)
         {
             return Av1TransformSetType.DctOnly;
         }
 
+        if (squareUpSize == Av1TransformSize.Size32x32)
+        {
+            return isInter ? Av1TransformSetType.InterSet3 : Av1TransformSetType.DctOnly;
+        }
+
         if (useReducedSet)
         {
-            return Av1TransformSetType.IntraSet2;
+            return isInter ? Av1TransformSetType.InterSet3 : Av1TransformSetType.IntraSet2;
         }
 
         Av1TransformSize squareSize = transformSize.GetSquareSize();
+        if (isInter)
+        {
+            return squareSize == Av1TransformSize.Size16x16 ? Av1TransformSetType.InterSet2 : Av1TransformSetType.InterSet1;
+        }
+
         return squareSize == Av1TransformSize.Size16x16 ? Av1TransformSetType.IntraSet2 : Av1TransformSetType.IntraSet1;
     }
 
@@ -315,7 +369,7 @@ internal static class Av1SymbolContextHelper
     /// <summary>
     /// SVT: get_ext_tx_set
     /// </summary>
-    internal static int GetExtendedTransformSet(Av1TransformSetType setType) => ExtendedTransformSetToIndex[(int)setType];
+    internal static int GetExtendedTransformSet(Av1TransformSetType setType, bool isInter) => ExtendedTransformSetToIndex[isInter ? 1 : 0][(int)setType];
 
     /// <summary>
     /// SVT: set_dc_sign

@@ -9,10 +9,10 @@ namespace SixLabors.ImageSharp.Formats.Heif.Av1.Tiling.Palette;
 
 /// <summary>
 /// Decodes the palette mode information (5.11.46) and palette tokens (5.11.49)
-/// for a single block. The decoded base colors are stored on the block's
-/// <see cref="Av1BlockModeInfo"/> so subsequent blocks can use them as
-/// neighbor cache contributions; the per-sample color index map is currently
-/// parsed for bitstream alignment only and discarded.
+/// for a single block. The decoded base colors and per-sample color index map
+/// are stored on the block's <see cref="Av1BlockModeInfo"/> so subsequent
+/// blocks can use them as neighbor cache contributions and so the predictor
+/// can write reconstructed samples without re-parsing.
 /// </summary>
 internal static class Av1PaletteDecoder
 {
@@ -43,7 +43,7 @@ internal static class Av1PaletteDecoder
             }
         }
 
-        if (partitionInfo.IsChroma && modeInfo.UvMode == Av1PredictionMode.DC)
+        if (!sequenceHeader.ColorConfig.IsMonochrome && partitionInfo.IsChroma && modeInfo.UvMode == Av1PredictionMode.DC)
         {
             int paletteUvModeCtx = paletteSizeY > 0 ? 1 : 0;
             if (reader.ReadHasPaletteUv(paletteUvModeCtx))
@@ -72,7 +72,9 @@ internal static class Av1PaletteDecoder
         if (paletteSizeY != 0)
         {
             PaletteBlockExtents extents = PaletteBlockExtents.For(blockSize, partitionInfo, plane: 0, subX: false, subY: false);
-            DecodeColorMap(ref reader, paletteSizeY, extents, Av1PlaneType.Y);
+            modeInfo.ColorIndexMapY = new byte[extents.Width * extents.Height];
+            modeInfo.ColorMapWidthY = extents.Width;
+            DecodeColorMap(ref reader, paletteSizeY, extents, Av1PlaneType.Y, modeInfo.ColorIndexMapY);
         }
 
         int paletteSizeUv = modeInfo.GetPaletteSize(Av1PlaneType.Uv);
@@ -81,7 +83,9 @@ internal static class Av1PaletteDecoder
             bool subX = sequenceHeader.ColorConfig.SubSamplingX;
             bool subY = sequenceHeader.ColorConfig.SubSamplingY;
             PaletteBlockExtents extents = PaletteBlockExtents.For(blockSize, partitionInfo, plane: 1, subX, subY);
-            DecodeColorMap(ref reader, paletteSizeUv, extents, Av1PlaneType.Uv);
+            modeInfo.ColorIndexMapUv = new byte[extents.Width * extents.Height];
+            modeInfo.ColorMapWidthUv = extents.Width;
+            DecodeColorMap(ref reader, paletteSizeUv, extents, Av1PlaneType.Uv, modeInfo.ColorIndexMapUv);
         }
     }
 
@@ -230,16 +234,18 @@ internal static class Av1PaletteDecoder
 
     /// <summary>
     /// Decodes the per-sample color index map via a wavefront over diagonals
-    /// (i = r + c) using 3-neighbor context. Currently parsed and discarded.
+    /// (i = r + c) using 3-neighbor context. The wavefront covers only the
+    /// on-screen <see cref="PaletteBlockExtents.Rows"/> × <see cref="PaletteBlockExtents.Cols"/>;
+    /// off-screen samples in the block-plane buffer remain zero so the
+    /// predictor never indexes uninitialised data.
     /// </summary>
     private static void DecodeColorMap(
         ref Av1SymbolDecoder reader,
         int paletteSize,
         PaletteBlockExtents extents,
-        Av1PlaneType plane)
+        Av1PlaneType plane,
+        Span<byte> colorMap)
     {
-        int mapLength = extents.Width * extents.Rows;
-        Span<byte> colorMap = mapLength <= 4096 ? stackalloc byte[mapLength] : new byte[mapLength];
         Span<byte> colorOrder = stackalloc byte[Av1BlockModeInfo.PaletteMaxSize];
 
         // First sample: ns(paletteSize).

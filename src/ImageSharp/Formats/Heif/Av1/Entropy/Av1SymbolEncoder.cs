@@ -5,6 +5,7 @@ using System.Buffers;
 using SixLabors.ImageSharp.Formats.Heif.Av1;
 using SixLabors.ImageSharp.Formats.Heif.Av1.Prediction;
 using SixLabors.ImageSharp.Formats.Heif.Av1.Tiling;
+using SixLabors.ImageSharp.Formats.Heif.Av1.Tiling.MotionVector;
 using SixLabors.ImageSharp.Formats.Heif.Av1.Transform;
 
 namespace SixLabors.ImageSharp.Formats.Heif.Av1.Entropy;
@@ -32,6 +33,24 @@ internal class Av1SymbolEncoder : IDisposable
     private readonly Av1Distribution[] skipMode = Av1DefaultDistributions.SkipMode;
     private readonly Av1Distribution chromaFromLumaSign = Av1DefaultDistributions.ChromaFromLumaSign;
     private readonly Av1Distribution[] chromaFromLumaAlpha = Av1DefaultDistributions.ChromaFromLumaAlpha;
+    private readonly Av1Distribution motionVectorJoint = Av1DefaultDistributions.MotionVectorJoint;
+    private readonly Av1Distribution[] motionVectorSign = Av1DefaultDistributions.MotionVectorSign;
+    private readonly Av1Distribution[] motionVectorClass = Av1DefaultDistributions.MotionVectorClass;
+    private readonly Av1Distribution[] motionVectorClass0Bit = Av1DefaultDistributions.MotionVectorClass0Bit;
+    private readonly Av1Distribution[][] motionVectorClass0Fraction = Av1DefaultDistributions.MotionVectorClass0Fraction;
+    private readonly Av1Distribution[] motionVectorFraction = Av1DefaultDistributions.MotionVectorFraction;
+    private readonly Av1Distribution[] motionVectorClass0HighPrecision = Av1DefaultDistributions.MotionVectorClass0HighPrecision;
+    private readonly Av1Distribution[] motionVectorHighPrecision = Av1DefaultDistributions.MotionVectorHighPrecision;
+    private readonly Av1Distribution[][] motionVectorBit = Av1DefaultDistributions.MotionVectorBit;
+    private readonly Av1Distribution displacementVectorJoint = Av1DefaultDistributions.DisplacementVectorJoint;
+    private readonly Av1Distribution[] displacementVectorSign = Av1DefaultDistributions.DisplacementVectorSign;
+    private readonly Av1Distribution[] displacementVectorClass = Av1DefaultDistributions.DisplacementVectorClass;
+    private readonly Av1Distribution[] displacementVectorClass0Bit = Av1DefaultDistributions.DisplacementVectorClass0Bit;
+    private readonly Av1Distribution[][] displacementVectorClass0Fraction = Av1DefaultDistributions.DisplacementVectorClass0Fraction;
+    private readonly Av1Distribution[] displacementVectorFraction = Av1DefaultDistributions.DisplacementVectorFraction;
+    private readonly Av1Distribution[] displacementVectorClass0HighPrecision = Av1DefaultDistributions.DisplacementVectorClass0HighPrecision;
+    private readonly Av1Distribution[] displacementVectorHighPrecision = Av1DefaultDistributions.DisplacementVectorHighPrecision;
+    private readonly Av1Distribution[][] displacementVectorBit = Av1DefaultDistributions.DisplacementVectorBit;
     private bool isDisposed;
     private readonly Configuration configuration;
     private Av1SymbolWriter writer;
@@ -55,6 +74,124 @@ internal class Av1SymbolEncoder : IDisposable
     {
         ref Av1SymbolWriter w = ref this.writer;
         w.WriteSymbol(value, this.tileIntraBlockCopy);
+    }
+
+    /// <summary>Spec 5.11.31: <c>mv_joint</c>.</summary>
+    public void WriteMotionVectorJoint(Av1MotionVectorJoint joint)
+    {
+        ref Av1SymbolWriter w = ref this.writer;
+        w.WriteSymbol((int)joint, this.motionVectorJoint);
+    }
+
+    /// <summary>Spec 5.11.32: <c>mv_sign</c>.</summary>
+    public void WriteMotionVectorSign(bool sign, Av1MotionVectorComponent comp)
+    {
+        ref Av1SymbolWriter w = ref this.writer;
+        w.WriteSymbol(sign, this.motionVectorSign[(int)comp]);
+    }
+
+    /// <summary>Spec 5.11.32: <c>mv_class</c>.</summary>
+    public void WriteMotionVectorClass(int mvClass, Av1MotionVectorComponent comp)
+    {
+        ref Av1SymbolWriter w = ref this.writer;
+        w.WriteSymbol(mvClass, this.motionVectorClass[(int)comp]);
+    }
+
+    /// <summary>Spec 5.11.32: <c>mv_class0_bit</c>.</summary>
+    public void WriteMotionVectorClass0Bit(int bit, Av1MotionVectorComponent comp)
+    {
+        ref Av1SymbolWriter w = ref this.writer;
+        w.WriteSymbol(bit, this.motionVectorClass0Bit[(int)comp]);
+    }
+
+    /// <summary>Spec 5.11.32: <c>mv_class0_fr</c>.</summary>
+    public void WriteMotionVectorClass0Fraction(int fr, Av1MotionVectorComponent comp, int class0Bit)
+    {
+        ref Av1SymbolWriter w = ref this.writer;
+        w.WriteSymbol(fr, this.motionVectorClass0Fraction[(int)comp][class0Bit]);
+    }
+
+    /// <summary>Spec 5.11.32: <c>mv_fr</c>.</summary>
+    public void WriteMotionVectorFraction(int fr, Av1MotionVectorComponent comp)
+    {
+        ref Av1SymbolWriter w = ref this.writer;
+        w.WriteSymbol(fr, this.motionVectorFraction[(int)comp]);
+    }
+
+    /// <summary>Spec 5.11.32: <c>mv_class0_hp</c>.</summary>
+    public void WriteMotionVectorClass0HighPrecision(int hp, Av1MotionVectorComponent comp)
+    {
+        ref Av1SymbolWriter w = ref this.writer;
+        w.WriteSymbol(hp, this.motionVectorClass0HighPrecision[(int)comp]);
+    }
+
+    /// <summary>Spec 5.11.32: <c>mv_hp</c>.</summary>
+    public void WriteMotionVectorHighPrecision(int hp, Av1MotionVectorComponent comp)
+    {
+        ref Av1SymbolWriter w = ref this.writer;
+        w.WriteSymbol(hp, this.motionVectorHighPrecision[(int)comp]);
+    }
+
+    /// <summary>Spec 5.11.32: <c>mv_bit</c> for offset bit <paramref name="bitIndex"/> in [0, MV_OFFSET_BITS).</summary>
+    public void WriteMotionVectorBit(int bit, Av1MotionVectorComponent comp, int bitIndex)
+    {
+        ref Av1SymbolWriter w = ref this.writer;
+        w.WriteSymbol(bit, this.motionVectorBit[(int)comp][bitIndex]);
+    }
+
+    // WriteDv* mirror WriteMotionVector* but route through the IBC `ndvc` context.
+    public void WriteDisplacementVectorJoint(Av1MotionVectorJoint joint)
+    {
+        ref Av1SymbolWriter w = ref this.writer;
+        w.WriteSymbol((int)joint, this.displacementVectorJoint);
+    }
+
+    public void WriteDisplacementVectorSign(bool sign, Av1MotionVectorComponent comp)
+    {
+        ref Av1SymbolWriter w = ref this.writer;
+        w.WriteSymbol(sign, this.displacementVectorSign[(int)comp]);
+    }
+
+    public void WriteDisplacementVectorClass(int mvClass, Av1MotionVectorComponent comp)
+    {
+        ref Av1SymbolWriter w = ref this.writer;
+        w.WriteSymbol(mvClass, this.displacementVectorClass[(int)comp]);
+    }
+
+    public void WriteDisplacementVectorClass0Bit(int bit, Av1MotionVectorComponent comp)
+    {
+        ref Av1SymbolWriter w = ref this.writer;
+        w.WriteSymbol(bit, this.displacementVectorClass0Bit[(int)comp]);
+    }
+
+    public void WriteDisplacementVectorClass0Fraction(int fr, Av1MotionVectorComponent comp, int class0Bit)
+    {
+        ref Av1SymbolWriter w = ref this.writer;
+        w.WriteSymbol(fr, this.displacementVectorClass0Fraction[(int)comp][class0Bit]);
+    }
+
+    public void WriteDisplacementVectorFraction(int fr, Av1MotionVectorComponent comp)
+    {
+        ref Av1SymbolWriter w = ref this.writer;
+        w.WriteSymbol(fr, this.displacementVectorFraction[(int)comp]);
+    }
+
+    public void WriteDisplacementVectorClass0HighPrecision(int hp, Av1MotionVectorComponent comp)
+    {
+        ref Av1SymbolWriter w = ref this.writer;
+        w.WriteSymbol(hp, this.displacementVectorClass0HighPrecision[(int)comp]);
+    }
+
+    public void WriteDisplacementVectorHighPrecision(int hp, Av1MotionVectorComponent comp)
+    {
+        ref Av1SymbolWriter w = ref this.writer;
+        w.WriteSymbol(hp, this.displacementVectorHighPrecision[(int)comp]);
+    }
+
+    public void WriteDisplacementVectorBit(int bit, Av1MotionVectorComponent comp, int bitIndex)
+    {
+        ref Av1SymbolWriter w = ref this.writer;
+        w.WriteSymbol(bit, this.displacementVectorBit[(int)comp][bitIndex]);
     }
 
     public void WritePartitionType(Av1PartitionType partitionType, int context)
@@ -279,14 +416,15 @@ internal class Av1SymbolEncoder : IDisposable
         Av1FilterIntraMode filterIntraMode,
         Av1PredictionMode intraDirection)
     {
-        // bool isInter = mbmi->block_mi.use_intrabc || is_inter_mode(mbmi->block_mi.mode);
-        Av1TransformSetType transformSetType = Av1SymbolContextHelper.GetExtendedTransformSetType(transformSize, useReducedTransformSet);
+        // Encoder is intra-only today; inter dispatch (IBC + inter modes) is decode-side only.
+        const bool isInter = false;
+        Av1TransformSetType transformSetType = Av1SymbolContextHelper.GetExtendedTransformSetType(transformSize, isInter, useReducedTransformSet);
         if (Av1SymbolContextHelper.GetExtendedTransformTypeCount(transformSetType) > 1 && baseQIndex > 0)
         {
             Av1TransformSize squareTransformSize = transformSize.GetSquareSize();
             Guard.MustBeLessThanOrEqualTo((int)squareTransformSize, Av1Constants.ExtendedTransformCount, nameof(squareTransformSize));
 
-            int extendedSet = Av1SymbolContextHelper.GetExtendedTransformSet(transformSetType);
+            int extendedSet = Av1SymbolContextHelper.GetExtendedTransformSet(transformSetType, isInter);
 
             // eset == 0 should correspond to a set with only DCT_DCT and there
             // is no need to send the tx_type

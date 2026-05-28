@@ -202,6 +202,46 @@ internal class Av1PredictionDecoder
         }
     }
 
+    /// <summary>
+    /// libaom: <c>av1_predict_intra_block</c> palette branch.
+    /// Each transform block writes the palette-indexed samples covering its
+    /// (txwpx × txhpx) extent, addressing the per-block color index map at
+    /// offset <c>(r + y) * wpx + (c + x)</c> where <c>x,y</c> are this transform's
+    /// pixel offsets within the prediction block and <c>wpx</c> is the block
+    /// plane width — i.e. <see cref="Av1BlockModeInfo.ColorMapWidthY"/> /
+    /// <see cref="Av1BlockModeInfo.ColorMapWidthUv"/>.
+    /// </summary>
+    private static void WritePalettePrediction(
+        Av1BlockModeInfo modeInfo,
+        Av1Plane plane,
+        Span<byte> pixelBuffer,
+        int pixelBufferStride,
+        int transformWidth,
+        int transformHeight,
+        int blockModeInfoColumnOffset,
+        int blockModeInfoRowOffset)
+    {
+        int x = blockModeInfoColumnOffset << Av1Constants.ModeInfoSizeLog2;
+        int y = blockModeInfoRowOffset << Av1Constants.ModeInfoSizeLog2;
+        ushort[] palette = plane switch
+        {
+            Av1Plane.Y => modeInfo.PaletteColorsY,
+            Av1Plane.U => modeInfo.PaletteColorsU,
+            _ => modeInfo.PaletteColorsV,
+        };
+        byte[] map = plane == Av1Plane.Y ? modeInfo.ColorIndexMapY : modeInfo.ColorIndexMapUv;
+        int mapStride = plane == Av1Plane.Y ? modeInfo.ColorMapWidthY : modeInfo.ColorMapWidthUv;
+        for (int r = 0; r < transformHeight; r++)
+        {
+            int dstRow = r * pixelBufferStride;
+            int mapRow = (r + y) * mapStride;
+            for (int c = 0; c < transformWidth; c++)
+            {
+                pixelBuffer[dstRow + c] = (byte)palette[map[mapRow + c + x]];
+            }
+        }
+    }
+
     private void PredictIntraBlock(
         Av1PartitionInfo partitionInfo,
         Av1Plane plane,
@@ -229,9 +269,17 @@ internal class Av1PredictionDecoder
         int transformHeight = transformSize.GetHeight();
 
         bool usePalette = modeInfo.GetPaletteSize(plane) > 0;
-
         if (usePalette)
         {
+            WritePalettePrediction(
+                modeInfo,
+                plane,
+                pixelBuffer,
+                pixelBufferStride,
+                transformWidth,
+                transformHeight,
+                blockModeInfoColumnOffset,
+                blockModeInfoRowOffset);
             return;
         }
 

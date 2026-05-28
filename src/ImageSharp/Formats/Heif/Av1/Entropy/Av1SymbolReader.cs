@@ -1,6 +1,8 @@
 // Copyright (c) Six Labors.
 // Licensed under the Six Labors Split License.
 
+using System.Runtime.CompilerServices;
+
 namespace SixLabors.ImageSharp.Formats.Heif.Av1.Entropy;
 
 internal ref struct Av1SymbolReader
@@ -38,16 +40,22 @@ internal ref struct Av1SymbolReader
         this.Refill();
     }
 
-    public int ReadSymbol(Av1Distribution distribution)
+    public int ReadSymbol(Av1Distribution distribution, [CallerMemberName] string caller = "")
     {
+        int posBefore = Av1SymbolTrace.Enabled ? this.position : 0;
+        int nsym = distribution.NumberOfSymbols;
+        int cdf0 = nsym > 0 ? (int)distribution[0] : 0;
+        int cdf1 = nsym > 1 ? (int)distribution[1] : 0;
         int value = this.DecodeIntegerQ15(distribution);
+        Av1SymbolTrace.WriteSymbol(posBefore, nsym, cdf0, cdf1, value, caller);
         distribution.Update(value);
         return value;
     }
 
-    public int ReadLiteral(int bitCount)
+    public int ReadLiteral(int bitCount, [CallerMemberName] string caller = "")
     {
         const uint prob = (0x7FFFFFU - (128 << 15) + 128) >> 8;
+        int posBefore = Av1SymbolTrace.Enabled ? this.position : 0;
         int literal = 0;
         for (int bit = bitCount - 1; bit >= 0; bit--)
         {
@@ -57,6 +65,7 @@ internal ref struct Av1SymbolReader
             }
         }
 
+        Av1SymbolTrace.WriteLiteral(posBefore, bitCount, literal, caller);
         return literal;
     }
 

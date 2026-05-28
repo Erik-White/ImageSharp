@@ -127,6 +127,35 @@ internal partial class Av1FrameInfo
 
     public Av1BlockModeInfo GetModeInfoByIndex(int index) => this.modeInfos[index];
 
+    /// <summary>
+    /// Looks up the <see cref="Av1BlockModeInfo"/> covering a given absolute
+    /// mode-info position. The caller is responsible for only querying
+    /// positions that have already been decoded (the offset map default-zero
+    /// means undecoded positions alias to whichever block was first written).
+    /// Returns null when the position is outside the frame (e.g. negative,
+    /// which can arise from <c>chromaBase{Col,Row} - 1</c> at the frame edge).
+    /// </summary>
+    public Av1BlockModeInfo? GetModeInfoAtMiPosition(Point absoluteMi)
+    {
+        if (absoluteMi.X < 0 || absoluteMi.Y < 0)
+        {
+            return null;
+        }
+
+        // The offset map is indexed in SB-flat coordinates (each SB occupies a
+        // modeInfoCountPerSuperblock-cell-wide stripe), so translate the
+        // absolute MI position into the same scheme before indexing.
+        int sbX = absoluteMi.X / this.modeInfoSizePerSuperblock;
+        int sbY = absoluteMi.Y / this.modeInfoSizePerSuperblock;
+        int posX = absoluteMi.X - (sbX * this.modeInfoSizePerSuperblock);
+        int posY = absoluteMi.Y - (sbY * this.modeInfoSizePerSuperblock);
+        Point flat = new(
+            (sbX * this.modeInfoCountPerSuperblock) + posX,
+            (sbY * this.modeInfoCountPerSuperblock) + posY);
+        int index = this.modeInfoMap[flat];
+        return this.modeInfos[index];
+    }
+
     public Span<Av1TransformInfo> GetSuperblockTransform(int plane, Point index)
     {
         if (plane == 0)

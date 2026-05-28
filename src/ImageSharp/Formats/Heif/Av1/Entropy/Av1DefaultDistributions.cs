@@ -95,6 +95,108 @@ internal static class Av1DefaultDistributions
 
     public static Av1Distribution IntraBlockCopy => new(30531);
 
+    /// <summary>Gets the motion-vector joint distribution. Spec: Default_Mv_Joint_Cdf, MV_JOINTS symbols.</summary>
+    public static Av1Distribution MotionVectorJoint => new(4096, 11264, 19328);
+
+    /// <summary>Gets the motion-vector sign distribution per component. Spec: Default_Mv_Sign_Cdf, replicated per component.</summary>
+    public static Av1Distribution[] MotionVectorSign =>
+        [new(128 * 128), new(128 * 128)];
+
+    /// <summary>Gets the motion-vector class distribution per component. Spec: Default_Mv_Class_Cdf, MV_CLASSES symbols.</summary>
+    public static Av1Distribution[] MotionVectorClass =>
+        [
+            new(28672, 30976, 31858, 32320, 32551, 32656, 32740, 32757, 32762, 32767),
+            new(28672, 30976, 31858, 32320, 32551, 32656, 32740, 32757, 32762, 32767)
+        ];
+
+    /// <summary>Gets the class-0 integer-bit distribution per component. Spec: Default_Mv_Class0_Bit_Cdf, replicated per component.</summary>
+    public static Av1Distribution[] MotionVectorClass0Bit =>
+        [new(216 * 128), new(216 * 128)];
+
+    /// <summary>Gets the class-0 fractional distribution indexed by [component][class0Bit]. Spec: Default_Mv_Class0_Fr_Cdf.</summary>
+    public static Av1Distribution[][] MotionVectorClass0Fraction =>
+        [
+            [new(16384, 24576, 26624), new(12288, 21248, 24128)],
+            [new(16384, 24576, 26624), new(12288, 21248, 24128)]
+        ];
+
+    /// <summary>Gets the fractional distribution per component (used when class>0). Spec: Default_Mv_Fr_Cdf.</summary>
+    public static Av1Distribution[] MotionVectorFraction =>
+        [
+            new(8192, 17408, 21248),
+            new(8192, 17408, 21248)
+        ];
+
+    /// <summary>Gets the class-0 high-precision bit distribution per component. Spec: Default_Mv_Class0_Hp_Cdf, replicated per component.</summary>
+    public static Av1Distribution[] MotionVectorClass0HighPrecision =>
+        [new(160 * 128), new(160 * 128)];
+
+    /// <summary>Gets the high-precision bit distribution per component (class>0). Spec: Default_Mv_Hp_Cdf, replicated per component.</summary>
+    public static Av1Distribution[] MotionVectorHighPrecision =>
+        [new(128 * 128), new(128 * 128)];
+
+    /// <summary>Gets the per-offset-bit distribution table indexed by [component][bitIndex]. Spec: Default_Mv_Bit_Cdf, replicated per component.</summary>
+    public static Av1Distribution[][] MotionVectorBit =>
+        [
+            [
+                new(136 * 128), new(140 * 128), new(148 * 128), new(160 * 128), new(176 * 128),
+                new(192 * 128), new(224 * 128), new(234 * 128), new(234 * 128), new(240 * 128)
+            ],
+            [
+                new(136 * 128), new(140 * 128), new(148 * 128), new(160 * 128), new(176 * 128),
+                new(192 * 128), new(224 * 128), new(234 * 128), new(234 * 128), new(240 * 128)
+            ]
+        ];
+
+    // The nine DisplacementVector* properties below back the IBC `ndvc` context. libaom
+    // initializes both `nmvc` and `ndvc` from the same `default_nmv_context` table, but
+    // each is a distinct runtime instance whose CDFs adapt independently. IBC reads must
+    // route through these so adaptation does not contaminate inter-MV decode (and vice
+    // versa). See libaom av1/common/entropymv.c:65-66 and decodemv.c:681.
+    public static Av1Distribution DisplacementVectorJoint => new(4096, 11264, 19328);
+
+    public static Av1Distribution[] DisplacementVectorSign =>
+        [new(128 * 128), new(128 * 128)];
+
+    public static Av1Distribution[] DisplacementVectorClass =>
+        [
+            new(28672, 30976, 31858, 32320, 32551, 32656, 32740, 32757, 32762, 32767),
+            new(28672, 30976, 31858, 32320, 32551, 32656, 32740, 32757, 32762, 32767)
+        ];
+
+    public static Av1Distribution[] DisplacementVectorClass0Bit =>
+        [new(216 * 128), new(216 * 128)];
+
+    public static Av1Distribution[][] DisplacementVectorClass0Fraction =>
+        [
+            [new(16384, 24576, 26624), new(12288, 21248, 24128)],
+            [new(16384, 24576, 26624), new(12288, 21248, 24128)]
+        ];
+
+    public static Av1Distribution[] DisplacementVectorFraction =>
+        [
+            new(8192, 17408, 21248),
+            new(8192, 17408, 21248)
+        ];
+
+    public static Av1Distribution[] DisplacementVectorClass0HighPrecision =>
+        [new(160 * 128), new(160 * 128)];
+
+    public static Av1Distribution[] DisplacementVectorHighPrecision =>
+        [new(128 * 128), new(128 * 128)];
+
+    public static Av1Distribution[][] DisplacementVectorBit =>
+        [
+            [
+                new(136 * 128), new(140 * 128), new(148 * 128), new(160 * 128), new(176 * 128),
+                new(192 * 128), new(224 * 128), new(234 * 128), new(234 * 128), new(240 * 128)
+            ],
+            [
+                new(136 * 128), new(140 * 128), new(148 * 128), new(160 * 128), new(176 * 128),
+                new(192 * 128), new(224 * 128), new(234 * 128), new(234 * 128), new(240 * 128)
+            ]
+        ];
+
     public static Av1Distribution[] PartitionTypes =>
         [
             new(19132, 25510, 30392),
@@ -199,11 +301,11 @@ internal static class Av1DefaultDistributions
         [
             [new(31676), new(3419), new(1261)],
             [new(31912), new(2859), new(980)],
-            [new(31823), new(3400), new(838)],
-            [new(32030), new(3574), new(820)],
-            [new(32309), new(3692), new(1115)],
-            [new(32232), new(3164), new(922)],
-            [new(32384), new(3266), new(448)]
+            [new(31823), new(3400), new(781)],
+            [new(32030), new(3561), new(904)],
+            [new(32309), new(7337), new(1462)],
+            [new(32265), new(4015), new(1521)],
+            [new(32450), new(7946), new(129)]
         ];
 
     /// <summary>
@@ -2342,6 +2444,49 @@ internal static class Av1DefaultDistributions
                     new(6554, 13107, 19661, 26214)
                 ]
             ],
+        ];
+
+    // libaom default_inter_ext_tx_cdf, shape [EXT_TX_SETS_INTER=4][EXT_TX_SIZES=4].
+    // Indexed by [eset][txsize_sqr_map[tx_size]] where eset = ext_tx_set_index[1][set_type].
+    // Set 0 is unused; set 1 = ALL16 (16 symbols), set 2 = DTT9_IDTX_1DDCT (12), set 3 = DCT_IDTX (2).
+    public static Av1Distribution[][] InterExtendedTransform =>
+        [
+            [
+                new(0),
+                new(0),
+                new(0),
+                new(0)
+            ],
+            [
+                new(4458, 5560, 7695, 9709, 13330, 14789, 17537, 20266, 21504, 22848, 23934, 25474, 27727, 28915, 30631),
+                new(1645, 2573, 4778, 5711, 7807, 8622, 10522, 15357, 17674, 20408, 22517, 25010, 27116, 28856, 30749),
+                new(2048, 4096, 6144, 8192, 10240, 12288, 14336, 16384, 18432, 20480, 22528, 24576, 26624, 28672, 30720),
+                new(2048, 4096, 6144, 8192, 10240, 12288, 14336, 16384, 18432, 20480, 22528, 24576, 26624, 28672, 30720)
+            ],
+            [
+                new(2731, 5461, 8192, 10923, 13653, 16384, 19115, 21845, 24576, 27307, 30037),
+                new(2731, 5461, 8192, 10923, 13653, 16384, 19115, 21845, 24576, 27307, 30037),
+                new(770, 2421, 5225, 12907, 15819, 18927, 21561, 24089, 26595, 28526, 30529),
+                new(2731, 5461, 8192, 10923, 13653, 16384, 19115, 21845, 24576, 27307, 30037)
+            ],
+            [
+                new(16384),
+                new(4167),
+                new(1998),
+                new(748)
+            ]
+        ];
+
+    // libaom default_txfm_partition_cdf, 21 contexts, 2 symbols (split flag for var-tx).
+    public static Av1Distribution[] TransformPartition =>
+        [
+            new(28581), new(23846), new(20847),
+            new(24315), new(18196), new(12133),
+            new(18791), new(10887), new(11005),
+            new(27179), new(20004), new(11281),
+            new(26549), new(19308), new(14224),
+            new(28015), new(21546), new(14400),
+            new(28165), new(22401), new(16088)
         ];
 
     public static Av1Distribution[][][] GetEndOfBlockFlag(int baseQIndex)
