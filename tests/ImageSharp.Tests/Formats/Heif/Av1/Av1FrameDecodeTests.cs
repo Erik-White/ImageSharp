@@ -170,7 +170,7 @@ public class Av1FrameDecodeTests
     [InlineData(TestImages.Heif.IbcClean256Ivf)]
     [InlineData(TestImages.Heif.MonoIbc256Ivf)]
     [InlineData(TestImages.Heif.ScreenText512Q30Ivf)]
-    [InlineData(TestImages.Heif.ScreenText512Q60Ivf, Skip = "Av1IntraBlockCopyValidator throws on a real AOM fixture: 'IBC source violates the wavefront constraint'. Either the validator is stricter than libaom, or the fixture trips a corner case of spec 6.10.25.")]
+    [InlineData(TestImages.Heif.ScreenText512Q60Ivf, Skip = "Decoder gets ~2/3 of the way through tile-0 entropy parse before diverging on coefficient CDFs at MI_BLOCK r=8 c=17 bsize=Block4x8.")]
     [InlineData(TestImages.Heif.ScreenTextNopltQ30Ivf)]
     [InlineData(TestImages.Heif.ScreenTextNopltQ60Ivf)]
     [InlineData(TestImages.Heif.ScreenTile256Ivf)]

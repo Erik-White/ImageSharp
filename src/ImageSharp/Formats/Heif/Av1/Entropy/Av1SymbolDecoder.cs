@@ -546,8 +546,14 @@ internal ref struct Av1SymbolDecoder
         int modeBlocksToBottomEdge,
         Span<int> coefficientBuffer)
     {
-        int width = transformSize.GetWidth();
-        int height = transformSize.GetHeight();
+        // libaom adjusts >32 transform sizes to their 32-bounded sibling for layout-side
+        // structures (level buffer, scan, magnitude tables). See get_txb_bhl/get_txb_wide/
+        // get_txb_high in txb_common.h:50-65, and av1_get_adjusted_tx_size in blockd.h:1366.
+        // Keep `transformSize` for symbol-context (CDF) selection; use `layoutTransformSize`
+        // for everything that reads or writes level/coefficient data.
+        Av1TransformSize layoutTransformSize = transformSize.GetAdjusted();
+        int width = layoutTransformSize.GetWidth();
+        int height = layoutTransformSize.GetHeight();
         Av1TransformSize transformSizeContext = Av1SymbolContextHelper.GetTransformSizeContext(transformSize);
         Av1PlaneType planeType = (Av1PlaneType)Math.Min(plane, 1);
         int culLevel = 0;
@@ -592,12 +598,12 @@ internal ref struct Av1SymbolDecoder
         {
             if (transformClass == Av1TransformClass.Class2D)
             {
-                this.ReadCoefficientsReverse2d(transformSize, 1, endOfBlock - 1 - 1, scan, levels, transformSizeContext, planeType);
-                this.ReadCoefficientsReverse(transformSize, transformClass, 0, 0, scan, levels, transformSizeContext, planeType);
+                this.ReadCoefficientsReverse2d(layoutTransformSize, 1, endOfBlock - 1 - 1, scan, levels, transformSizeContext, planeType);
+                this.ReadCoefficientsReverse(layoutTransformSize, transformClass, 0, 0, scan, levels, transformSizeContext, planeType);
             }
             else
             {
-                this.ReadCoefficientsReverse(transformSize, transformClass, 0, endOfBlock - 1 - 1, scan, levels, transformSizeContext, planeType);
+                this.ReadCoefficientsReverse(layoutTransformSize, transformClass, 0, endOfBlock - 1 - 1, scan, levels, transformSizeContext, planeType);
             }
         }
 
