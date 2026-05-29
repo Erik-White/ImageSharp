@@ -132,28 +132,23 @@ public class Av1ScanOrderTests
         Assert.Equal(expected, scanOrder.Scan.ToArray());
     }
 
-    /// <summary>
-    /// Rectangular 4x8 scan from libaom <c>default_scan_4x8</c>. Different stride than
-    /// 8x4 — pinning both protects against a single-direction transposition fix that
-    /// flips them back into each other.
-    /// </summary>
     [Fact]
-    public void DefaultScan4x8_MatchesLibaom()
+    public void DefaultScan4x8_MatchesLibaomTransposed()
     {
         Av1ScanOrder scanOrder = Av1ScanOrderConstants.GetScanOrder(Av1TransformSize.Size4x8, Av1TransformType.DctDct);
         short[] expected = [
-            0,  8, 1,  16, 9,  2, 24, 17, 10, 3, 25, 18, 11, 4,  26, 19,
-            12, 5, 27, 20, 13, 6, 28, 21, 14, 7, 29, 22, 15, 30, 23, 31];
+            0,  1,  4,  2,  5,  8,  3,  6,  9,  12, 7,  10, 13, 16, 11, 14,
+            17, 20, 15, 18, 21, 24, 19, 22, 25, 28, 23, 26, 29, 27, 30, 31];
         Assert.Equal(expected, scanOrder.Scan.ToArray());
     }
 
     [Fact]
-    public void DefaultScan8x4_MatchesLibaom()
+    public void DefaultScan8x4_MatchesLibaomTransposed()
     {
         Av1ScanOrder scanOrder = Av1ScanOrderConstants.GetScanOrder(Av1TransformSize.Size8x4, Av1TransformType.DctDct);
         short[] expected = [
-            0,  1,  4,  2,  5,  8,  3,  6,  9,  12, 7,  10, 13, 16, 11, 14,
-            17, 20, 15, 18, 21, 24, 19, 22, 25, 28, 23, 26, 29, 27, 30, 31];
+            0,  8, 1,  16, 9,  2, 24, 17, 10, 3, 25, 18, 11, 4,  26, 19,
+            12, 5, 27, 20, 13, 6, 28, 21, 14, 7, 29, 22, 15, 30, 23, 31];
         Assert.Equal(expected, scanOrder.Scan.ToArray());
     }
 
