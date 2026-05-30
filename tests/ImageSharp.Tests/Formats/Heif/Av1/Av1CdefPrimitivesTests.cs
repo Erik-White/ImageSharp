@@ -136,6 +136,63 @@ public class Av1CdefPrimitivesTests
     }
 
     /// <summary>
+    /// Spec 7.15.2.2 direction search must recover every one of the 8 directions, including
+    /// the off-diagonals (1, 3, 5, 7). For each target direction the block is a ramp whose
+    /// value depends only on which accumulation line a pixel falls on for that direction,
+    /// centred so the offsets are symmetric about zero.
+    /// </summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    [InlineData(5)]
+    [InlineData(6)]
+    [InlineData(7)]
+    public void FindDirection_RampAlongDirection_RecoversThatDirection(int direction)
+    {
+        ushort[] img = new ushort[8 * 8];
+        int maxLine = MaxLineIndex(direction);
+        for (int i = 0; i < 8; i++)
+        {
+            for (int j = 0; j < 8; j++)
+            {
+                // (2*line - maxLine) is symmetric about 0; ×4 keeps every value inside [0, 255].
+                int value = 128 + (((2 * LineIndex(direction, i, j)) - maxLine) * 4);
+                img[(i * 8) + j] = (ushort)value;
+            }
+        }
+
+        int dir = Av1CdefPrimitives.FindDirection(img, 8, out _, coeffShift: 0);
+
+        Assert.Equal(direction, dir);
+    }
+
+    // The accumulation-line index a pixel (i, j) contributes to for each direction, matching
+    // the partial[] subscripts in Av1CdefPrimitives.AccumulatePartials (spec 7.15.3 lines).
+    private static int LineIndex(int direction, int i, int j) => direction switch
+    {
+        0 => i + j,
+        1 => i + (j / 2),
+        2 => i,
+        3 => 3 + i - (j / 2),
+        4 => 7 + i - j,
+        5 => 3 - (i / 2) + j,
+        6 => j,
+        _ => (i / 2) + j,
+    };
+
+    // Highest line index each direction's accumulation can reach over an 8×8 block, used to
+    // centre the ramp so perpendicular directions' line sums cancel.
+    private static int MaxLineIndex(int direction) => direction switch
+    {
+        0 or 4 => 14,
+        2 or 6 => 7,
+        _ => 10,
+    };
+
+    /// <summary>
     /// Spec 7.15.2 filter step with both strengths zero: every <c>Constrain</c> call returns
     /// 0 (its threshold-zero short-circuit), so the running sum stays 0 and the output is
     /// the unmodified input.

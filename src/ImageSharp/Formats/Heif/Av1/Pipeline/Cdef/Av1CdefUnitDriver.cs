@@ -245,7 +245,7 @@ internal static class Av1CdefUnitDriver
         }
         else if (geometry.SubX != geometry.SubY)
         {
-            RemapChromaDirections(dlist, cdefCount, geometry.SubX != 0, buffers.Directions);
+            RemapChromaDirections(dlist, cdefCount, buffers.Directions);
         }
 
         FilterAllCells(geometry, dlist, cdefCount, primaryStrength, secondaryStrength, damping, coeffShift, planeIndex, in buffers);
@@ -276,13 +276,14 @@ internal static class Av1CdefUnitDriver
     private static void RemapChromaDirections(
         ReadOnlySpan<Av1CdefCellPosition> dlist,
         int cdefCount,
-        bool subX,
         Span<int> directions)
     {
-        // Spec 7.15.2.2: when chroma subsampling is asymmetric (4:2:2 → subX only;
-        // 4:4:0 → subY only) the luma direction is remapped to the closest valid
-        // direction in the rectangular chroma block via libaom's conv422 / conv440 tables.
-        ReadOnlySpan<int> remap = subX ? Av1CdefConstants.ChromaConv422 : Av1CdefConstants.ChromaConv440;
+        // Spec 7.15.2.2 / 7.15.1 Cdef_Uv_Dir: for asymmetric chroma subsampling the luma
+        // direction is remapped to the closest direction valid in the rectangular chroma
+        // block. The only asymmetric format AV1 permits is 4:2:2 (subX=1, subY=0; the spec's
+        // color_config table allows no subX=0/subY=1 case), so the single reachable remap is
+        // ChromaConv422.
+        ReadOnlySpan<int> remap = Av1CdefConstants.ChromaConv422;
         for (int bi = 0; bi < cdefCount; bi++)
         {
             directions[bi] = remap[directions[bi] & 7];

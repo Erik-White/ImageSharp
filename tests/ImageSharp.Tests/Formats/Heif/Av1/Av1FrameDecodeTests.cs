@@ -172,21 +172,15 @@ public class Av1FrameDecodeTests
     public void CdefMulti256_Frame0_MatchesLibaomReference() => this.AssertLibaomYuv420Match(TestImages.Heif.CdefMulti256Ivf, "Heif/Av1/cdef-multi-256.frame0.yuv");
 
     /// <summary>
-    /// Smoke test for a 4:2:2 CDEF-active fixture. The chroma direction remap path
+    /// `cdef-422-128.ivf` — 128×128 4:2:2 CDEF-active fixture. The chroma direction remap
     /// (<c>Av1CdefConstants.ChromaConv422</c> in <c>Av1CdefUnitDriver.RemapChromaDirections</c>)
-    /// only fires when <c>SubX != SubY</c>, which 4:2:0 and 4:4:4 fixtures can't reach.
-    /// We don't compare against an aomdec golden YUV here because aomdec emits 4:2:2 in a
-    /// different layout than our decoder produces.
+    /// only fires when <c>SubX != SubY</c>, which 4:2:0 and 4:4:4 fixtures can't reach. Chroma
+    /// is half-width / full-height; the golden YUV is aomdec's standard I422 planar output
+    /// (full-height, half-width U then V).
     /// </summary>
     [Fact]
-    public void Cdef422_128_DecodesWithoutThrowing()
-    {
-        byte[] obus = LoadIvfFirstFrame(TestImages.Heif.Cdef422_128Ivf);
-        Av1Decoder decoder = new(Configuration.Default);
-        using Image<Rgba32> _ = decoder.Decode<Rgba32>(obus);
-        Assert.NotNull(decoder.FrameBuffer);
-        Assert.NotNull(decoder.FrameHeader);
-    }
+    public void Cdef422_128_Frame0_MatchesLibaomReference()
+        => this.AssertLibaomYuvMatch(TestImages.Heif.Cdef422_128Ivf, "Heif/Av1/cdef-422-128.frame0.yuv", chromaShiftX: 1, chromaShiftY: 0);
 
     /// <summary>
     /// `nopost-128.ivf` — synthetic 128×128 4:2:0 frame authored with libaom-av1
@@ -241,7 +235,11 @@ public class Av1FrameDecodeTests
         Assert.NotNull(decoder.FrameHeader);
     }
 
+    // 4:2:0 golden: chroma is subsampled on both axes.
     private void AssertLibaomYuv420Match(string ivfFixture, string referenceRelativePath)
+        => this.AssertLibaomYuvMatch(ivfFixture, referenceRelativePath, chromaShiftX: 1, chromaShiftY: 1);
+
+    private void AssertLibaomYuvMatch(string ivfFixture, string referenceRelativePath, int chromaShiftX, int chromaShiftY)
     {
         byte[] obus = LoadIvfFirstFrame(ivfFixture);
 
@@ -252,8 +250,8 @@ public class Av1FrameDecodeTests
 
         int width = decoder.FrameHeader!.FrameSize.FrameWidth;
         int height = decoder.FrameHeader.FrameSize.FrameHeight;
-        int chromaWidth = (width + 1) >> 1;
-        int chromaHeight = (height + 1) >> 1;
+        int chromaWidth = (width + ((1 << chromaShiftX) - 1)) >> chromaShiftX;
+        int chromaHeight = (height + ((1 << chromaShiftY) - 1)) >> chromaShiftY;
 
         byte[] reference = LoadReference(referenceRelativePath);
         int expectedSize = (width * height) + (2 * chromaWidth * chromaHeight);
@@ -265,8 +263,8 @@ public class Av1FrameDecodeTests
 
         int originX = decoder.FrameBuffer!.OriginX;
         int originY = decoder.FrameBuffer.OriginY;
-        int chromaOriginX = originX >> 1;
-        int chromaOriginY = originY >> 1;
+        int chromaOriginX = originX >> chromaShiftX;
+        int chromaOriginY = originY >> chromaShiftY;
 
         PlaneDiff yDiff = ComparePlane(decoder.FrameBuffer.BufferY!, reference.AsSpan(yOffset, width * height), width, height, originX, originY);
         PlaneDiff uDiff = ComparePlane(decoder.FrameBuffer.BufferCb!, reference.AsSpan(uOffset, chromaWidth * chromaHeight), chromaWidth, chromaHeight, chromaOriginX, chromaOriginY);
@@ -289,7 +287,7 @@ public class Av1FrameDecodeTests
 
     private static byte[] LoadReference(string relativePath)
     {
-        string path = Path.Combine(TestEnvironment.SolutionDirectoryFullPath, "tests/Images/ReferenceOutput", relativePath);
+        string path = Path.Combine(TestEnvironment.SolutionDirectoryFullPath, "tests/Images/External/ReferenceOutput", relativePath);
         return File.ReadAllBytes(path);
     }
 

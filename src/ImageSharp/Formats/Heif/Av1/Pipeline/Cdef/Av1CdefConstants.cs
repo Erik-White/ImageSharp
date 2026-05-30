@@ -90,11 +90,4 @@ internal static class Av1CdefConstants
     /// libaom <c>cdef.c:cdef_fb_col</c>.
     /// </summary>
     public static readonly int[] ChromaConv422 = [7, 0, 2, 4, 5, 6, 6, 6];
-
-    /// <summary>
-    /// Chroma direction remap for 4:4:0 (vertically subsampled) — luma direction is mapped
-    /// onto the closest direction valid in the half-height 4×8 chroma block. Spec 7.15.2.2;
-    /// libaom <c>cdef.c:cdef_fb_col</c>.
-    /// </summary>
-    public static readonly int[] ChromaConv440 = [1, 2, 2, 2, 3, 4, 6, 0];
 }

@@ -100,6 +100,108 @@ public class Av1CdefBufferPadTests
     }
 
     /// <summary>
+    /// The plane the decoder hands CDEF is a padded buffer: the visible frame starts at
+    /// (planeOriginX, planeOriginY), not at the buffer origin. Every source read must add that
+    /// offset. With a non-zero origin the interior copy must still match the visible pixels.
+    /// </summary>
+    [Fact]
+    public void Pad_NonZeroPlaneOrigin_ReadsFromVisibleRegion()
+    {
+        const int planeOriginX = 16;
+        const int planeOriginY = 8;
+        const int frameWidth = 96;
+        const int frameHeight = 96;
+        const int unitOriginX = 32;
+        const int unitOriginY = 32;
+        const int unitWidth = 64;
+        const int unitHeight = 64;
+
+        // Backing buffer includes the origin padding on each side.
+        int bufferStride = frameWidth + (2 * planeOriginX);
+        int bufferHeight = frameHeight + (2 * planeOriginY);
+        byte[] plane = new byte[bufferStride * bufferHeight];
+        for (int y = 0; y < bufferHeight; y++)
+        {
+            for (int x = 0; x < bufferStride; x++)
+            {
+                plane[(y * bufferStride) + x] = (byte)(((y * 13) + (x * 7)) & 0xFF);
+            }
+        }
+
+        ushort[] buffer = new ushort[Av1CdefConstants.BufferStride * (unitHeight + (2 * Av1CdefConstants.VerticalBorder))];
+        Av1CdefBufferPad.Pad(plane, bufferStride, unitOriginX, unitOriginY, unitWidth, unitHeight, planeOriginX, planeOriginY, frameWidth, frameHeight, buffer);
+
+        int hBorder = Av1CdefConstants.HorizontalBorder;
+        int vBorder = Av1CdefConstants.VerticalBorder;
+        int stride = Av1CdefConstants.BufferStride;
+
+        for (int dy = -2; dy < unitHeight + 2; dy++)
+        {
+            for (int dx = -2; dx < unitWidth + 2; dx++)
+            {
+                ushort actual = buffer[((vBorder + dy) * stride) + hBorder + dx];
+                int frameX = unitOriginX + dx;
+                int frameY = unitOriginY + dy;
+                bool onFrame = frameX >= 0 && frameX < frameWidth && frameY >= 0 && frameY < frameHeight;
+                if (onFrame)
+                {
+                    byte expected = plane[((frameY + planeOriginY) * bufferStride) + frameX + planeOriginX];
+                    Assert.Equal(expected, actual);
+                }
+                else
+                {
+                    Assert.Equal(Av1CdefConstants.VeryLarge, actual);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// A clipped unit at the bottom-right of a non-multiple-of-64 frame: the unit is only
+    /// unitWidth×unitHeight (smaller than 64) and the columns/rows past the frame extent are
+    /// off-frame.
+    /// </summary>
+    [Fact]
+    public void Pad_ClippedUnit_FillsBeyondFrameExtent()
+    {
+        const int frameWidth = 96;
+        const int frameHeight = 80;
+        const int unitOriginX = 64;
+        const int unitOriginY = 64;
+        const int unitWidth = 32;  // 96 - 64
+        const int unitHeight = 16; // 80 - 64
+
+        byte[] plane = new byte[frameWidth * frameHeight];
+        Array.Fill(plane, (byte)0x42);
+
+        ushort[] buffer = new ushort[Av1CdefConstants.BufferStride * (unitHeight + (2 * Av1CdefConstants.VerticalBorder))];
+        Av1CdefBufferPad.Pad(plane, frameWidth, unitOriginX, unitOriginY, unitWidth, unitHeight, 0, 0, frameWidth, frameHeight, buffer);
+
+        int hBorder = Av1CdefConstants.HorizontalBorder;
+        int vBorder = Av1CdefConstants.VerticalBorder;
+        int stride = Av1CdefConstants.BufferStride;
+
+        for (int r = 0; r < unitHeight + (2 * vBorder); r++)
+        {
+            int absoluteY = unitOriginY + r - vBorder;
+            for (int c = 0; c < unitWidth + (2 * hBorder); c++)
+            {
+                int absoluteX = unitOriginX + c - hBorder;
+                bool onFrame = absoluteX >= 0 && absoluteX < frameWidth && absoluteY >= 0 && absoluteY < frameHeight;
+                ushort actual = buffer[(r * stride) + c];
+                if (onFrame)
+                {
+                    Assert.Equal(0x42, actual);
+                }
+                else
+                {
+                    Assert.Equal(Av1CdefConstants.VeryLarge, actual);
+                }
+            }
+        }
+    }
+
+    /// <summary>
     /// On the right edge, the columns past the frame width are off-frame; the rows still
     /// available (above/below the unit, but inside the frame) are real pixel values.
     /// </summary>
