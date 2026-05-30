@@ -72,21 +72,25 @@ internal class Av1SmoothPredictor : IAv1Predictor
         ref byte destinationRef = ref destination[0];
         int belowPrediction = Unsafe.Add(ref leftRef, this.blockHeight - 1); // estimated by bottom-left pixel
         int rightPrediction = Unsafe.Add(ref aboveRef, this.blockWidth - 1); // estimated by top-right pixel
-        ref int heightWeights = ref Weights[(int)this.blockWidth];
-        ref int widthWeights = ref Weights[(int)this.blockHeight];
+
+        // Spec 7.11.2.6 (smooth intra): a pixel's row weight comes from the HEIGHT-indexed
+        // weight table and its column weight from the WIDTH-indexed table (libaom
+        // sm_weights_h[r] / sm_weights_w[c]).
+        ref int rowWeights = ref Weights[(int)this.blockHeight];
+        ref int columnWeights = ref Weights[(int)this.blockWidth];
 
         // scale = 2 * 2^sm_weight_log2_scale
         int log2Scale = 1 + WeightLog2Scale;
         int scale = 1 << WeightLog2Scale;
 
-        // sm_weights_sanity_checks(sm_weights_w, sm_weights_h, scale, log2_scale + 2);
+        // sm_weights_sanity_checks(sm_weights_w, sm_weights_h, scale, log2_scale + 2)
         for (nuint r = 0; r < this.blockHeight; ++r)
         {
-            int rowWeight = Unsafe.Add(ref heightWeights, r);
+            int rowWeight = Unsafe.Add(ref rowWeights, r);
             Guard.MustBeGreaterThanOrEqualTo(scale, rowWeight, nameof(scale));
             for (nuint c = 0; c < this.blockWidth; ++c)
             {
-                int columnWeight = Unsafe.Add(ref widthWeights, c);
+                int columnWeight = Unsafe.Add(ref columnWeights, c);
                 Guard.MustBeGreaterThanOrEqualTo(scale, columnWeight, nameof(scale));
                 int thisPredition = Unsafe.Add(ref aboveRef, c) * rowWeight;
                 thisPredition += belowPrediction * (scale - rowWeight);

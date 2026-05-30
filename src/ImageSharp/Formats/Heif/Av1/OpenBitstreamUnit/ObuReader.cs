@@ -1556,7 +1556,9 @@ internal class ObuReader
             }
             else
             {
-                if (reader.ReadBoolean())
+                // Spec 5.9.20: lr_unit_extra_shift is signalled only when lr_unit_shift (the bit
+                // just read) is non-zero — the condition is that value, not a fresh bit.
+                if (frameHeader.LoopRestorationParameters.UnitShift != 0)
                 {
                     frameHeader.LoopRestorationParameters.UnitShift += (int)reader.ReadLiteral(1);
                 }
