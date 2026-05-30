@@ -64,14 +64,15 @@ internal class Av1InverseQuantizer
             : Av1InverseQuantizationLookup.GetQuantizationMatrix(Av1Constants.QuantificationMatrixLevelCount - 1, Av1Plane.Y, qmTransformSize);
         int shift = transformSize.GetScale();
 
-        // Spec 7.13.3: the row pass of the 2D inverse transform sets T[j] = Dequant[i][j]
-        // only when both i and j are < 32 (T[j] = 0 otherwise). At TX dimensions of 64 the
-        // scan table is therefore the half-grid (32x32, 32x16, or 16x32) one. Place each
-        // scanned coefficient at its full-grid position before the transformer reads it
-        // column-major at the destination stride so the axis needing remap is height.
+        // Scan positions are row-major over the (possibly 64->32 down-bounded) scan grid:
+        // pos = (row * scanWidth) + col. The 2D inverse transform reads its input column-major
+        // at the destination height stride (input[(col * destHeight) + row]; spec 7.13.3 row
+        // pass). Convert each scanned position into that column-major slot. This is the identity
+        // when scanWidth == destHeight (square, post-adjust) and also performs the 64-dim
+        // half-grid -> full-grid expansion; it must use scanWidth (not scanHeight), which only
+        // diverge for non-square transforms such as 32x16.
         int destinationHeight = transformSize.GetHeight();
-        int scanHeight = qmTransformSize.GetHeight();
-        bool remapHeight = destinationHeight != scanHeight;
+        int scanWidth = qmTransformSize.GetWidth();
 
         int coefficientCount = level[0];
         level = level[1..];
@@ -105,9 +106,7 @@ internal class Av1InverseQuantizer
                     qCoefficient = -qCoefficient;
                 }
 
-                int destPos = remapHeight
-                    ? ((pos / scanHeight) * destinationHeight) + (pos % scanHeight)
-                    : pos;
+                int destPos = ((pos / scanWidth) * destinationHeight) + (pos % scanWidth);
                 qCoefficients[destPos] = Av1Math.Clamp(qCoefficient, minValue, maxValue);
             }
         }
