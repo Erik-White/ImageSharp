@@ -598,7 +598,11 @@ internal ref struct Av1SymbolDecoder
         {
             if (transformClass == Av1TransformClass.Class2D)
             {
-                this.ReadCoefficientsReverse2d(layoutTransformSize, 1, endOfBlock - 1 - 1, scan, levels, transformSizeContext, planeType);
+                // Pass the ORIGINAL transformSize (not layoutTransformSize) so libaom's
+                // av1_nz_map_ctx_offset[tx_size][...] table is keyed by the right entry —
+                // TX_32x64 has a different entry than TX_32x32. The recombination uses the
+                // adjusted (layout) height so the index stays in range.
+                this.ReadCoefficientsReverse2d(transformSize, 1, endOfBlock - 1 - 1, scan, levels, transformSizeContext, planeType);
                 this.ReadCoefficientsReverse(layoutTransformSize, transformClass, 0, 0, scan, levels, transformSizeContext, planeType);
             }
             else

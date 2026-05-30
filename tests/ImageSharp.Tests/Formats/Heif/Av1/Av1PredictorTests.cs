@@ -485,4 +485,60 @@ public class Av1PredictorTests
         Av1TransformSize.Size64x64 => Digests64x64[(int)mode],
         _ => string.Empty,
     };
+
+    /// <summary>
+    /// <see cref="Av1DirectionalZone2Predictor"/> at angle 171 (H_PRED with delta -3) against
+    /// libaom <c>av1_dr_prediction_z2_c</c> reference output. Inputs are an 8×8 block with
+    /// a synthetic gradient in <c>above[0..7]</c> and <c>left[0..7]</c>, the rest of the
+    /// neighbour buffers padded with the AV1 default fillers (127 above, 129 left). dx=372,
+    /// dy=11 are the derivatives <c>av1_get_dx</c> / <c>av1_get_dy</c> emit at angle 171.
+    /// Regression test for the prior <see cref="Av1DirectionalZone2Predictor"/> which had a
+    /// z1-style algorithm copy-pasted in place of the z2 spec.
+    /// </summary>
+    [Fact]
+    public void VerifyDirectionalZone2_Angle171_8x8_MatchesLibaom()
+    {
+        // libaom's prediction setup leaves 16 bytes of padding before the above/left
+        // pointers (see `build_directional_and_filter_intra_predictors` in reconintra.c).
+        // The z2 path indexes <c>above[-1]</c> (and possibly <c>above[-2]</c> when
+        // upsampled), so the caller must pass spans with stable padding before index 0.
+        byte[] aboveBuffer = new byte[64];
+        byte[] leftBuffer = new byte[64];
+        Array.Fill(aboveBuffer, (byte)127);
+        Array.Fill(leftBuffer, (byte)129);
+        for (int i = 0; i < 8; i++)
+        {
+            aboveBuffer[16 + i] = (byte)(100 + (i * 5));
+            leftBuffer[16 + i] = (byte)(200 - (i * 7));
+        }
+
+        Span<byte> above = aboveBuffer.AsSpan(16);
+        Span<byte> left = leftBuffer.AsSpan(16);
+
+        byte[] dst = new byte[64];
+        Av1DirectionalZone2Predictor.PredictScalar(
+            Av1TransformSize.Size8x8,
+            dst,
+            stride: 8,
+            above,
+            left,
+            upsampleAbove: false,
+            upsampleLeft: false,
+            dx: 372,
+            dy: 11);
+
+        byte[] expected =
+        [
+            187, 176, 162, 151, 138, 122, 101, 106,
+            194, 195, 197, 198, 199, 198, 184, 173,
+            187, 188, 190, 191, 192, 193, 195, 196,
+            180, 181, 183, 184, 185, 186, 188, 189,
+            173, 174, 176, 177, 178, 179, 181, 182,
+            166, 167, 169, 170, 171, 172, 174, 175,
+            159, 160, 162, 163, 164, 165, 167, 168,
+            152, 153, 155, 156, 157, 158, 160, 161,
+        ];
+
+        Assert.Equal(expected, dst);
+    }
 }

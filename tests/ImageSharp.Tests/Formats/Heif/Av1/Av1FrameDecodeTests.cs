@@ -140,10 +140,63 @@ public class Av1FrameDecodeTests
     /// the regular non-IBC inverse-transform path.
     /// </summary>
     [Fact]
-    public void Orange4x4_Frame0_MatchesLibaomReference()
+    public void Orange4x4_Frame0_MatchesLibaomReference() => this.AssertLibaomYuv420Match(TestImages.Heif.Orange4x4Ivf, "Heif/Av1/Orange4x4.frame0.yuv");
+
+    /// <summary>
+    /// `cdef-only-128.ivf` — synthetic 128×128 4:2:0 frame authored with libaom-av1
+    /// <c>-enable-cdef 1 -enable-restoration 0</c>. CDEF fires on every superblock; loop
+    /// restoration is disabled at the sequence level. With LR off, the only post-loop-filter
+    /// step is CDEF, so a byte-level match against the aomdec reference YUV verifies our
+    /// CDEF apply path end-to-end.
+    /// </summary>
+    [Fact]
+    public void CdefOnly128_Frame0_MatchesLibaomReference() => this.AssertLibaomYuv420Match(TestImages.Heif.CdefOnly128Ivf, "Heif/Av1/cdef-only-128.frame0.yuv");
+
+    /// <summary>
+    /// `cdef-edge-96x80.ivf` — 96×80 4:2:0 frame with CDEF on, LR off. The frame dimensions
+    /// are not multiples of 64, so the CDEF unit grid produces clipped units at the right
+    /// edge (32 wide) and bottom edge (16 tall). Validates the unit-clipping path
+    /// <c>Math.Min(64, frame.Width - unitOriginX)</c> in <c>Av1CdefUnitDriver.ProcessUnit</c>
+    /// that <see cref="CdefOnly128_Frame0_MatchesLibaomReference"/> can't reach.
+    /// </summary>
+    [Fact]
+    public void CdefEdge96x80_Frame0_MatchesLibaomReference() => this.AssertLibaomYuv420Match(TestImages.Heif.CdefEdge96x80Ivf, "Heif/Av1/cdef-edge-96x80.frame0.yuv");
+
+    /// <summary>
+    /// `cdef-multi-256.ivf` — 256×256 4:2:0 frame encoded at CRF 50 so libaom picks
+    /// <c>bitCount &gt; 0</c> and the per-SB <c>CdefStrength</c> varies. Validates the
+    /// per-SB strength dispatch in <c>TryGetUnitStrengthIndex</c> + <c>YStrength[strengthIndex]</c>
+    /// lookup which single-strength fixtures (cdef-only-128 with bitCount=0) bypass.
+    /// </summary>
+    [Fact]
+    public void CdefMulti256_Frame0_MatchesLibaomReference() => this.AssertLibaomYuv420Match(TestImages.Heif.CdefMulti256Ivf, "Heif/Av1/cdef-multi-256.frame0.yuv");
+
+    /// <summary>
+    /// Smoke test for a 4:2:2 CDEF-active fixture. The chroma direction remap path
+    /// (<c>Av1CdefConstants.ChromaConv422</c> in <c>Av1CdefUnitDriver.RemapChromaDirections</c>)
+    /// only fires when <c>SubX != SubY</c>, which 4:2:0 and 4:4:4 fixtures can't reach.
+    /// We don't compare against an aomdec golden YUV here because aomdec emits 4:2:2 in a
+    /// different layout than our decoder produces.
+    /// </summary>
+    [Fact]
+    public void Cdef422_128_DecodesWithoutThrowing()
     {
-        AssertLibaomYuv420Match(TestImages.Heif.Orange4x4Ivf, "Heif/Av1/Orange4x4.frame0.yuv");
+        byte[] obus = LoadIvfFirstFrame(TestImages.Heif.Cdef422_128Ivf);
+        Av1Decoder decoder = new(Configuration.Default);
+        using Image<Rgba32> _ = decoder.Decode<Rgba32>(obus);
+        Assert.NotNull(decoder.FrameBuffer);
+        Assert.NotNull(decoder.FrameHeader);
     }
+
+    /// <summary>
+    /// `nopost-128.ivf` — synthetic 128×128 4:2:0 frame authored with libaom-av1
+    /// <c>-enable-cdef 0 -enable-restoration 0</c>. With every post-loop-filter step off,
+    /// only deblock + intra prediction + inverse transform run, so a YUV mismatch isolates
+    /// the intra/transform pipeline from CDEF/LR. Currently chroma matches byte-exact and
+    /// Y is ~99% off (mean_abs ~38), tracking #134.
+    /// </summary>
+    [Fact]
+    public void NoPost128_Frame0_MatchesLibaomReference() => this.AssertLibaomYuv420Match(TestImages.Heif.NoPost128Ivf, "Heif/Av1/nopost-128.frame0.yuv");
 
     /// <summary>
     /// `Irvine_CA.ivf` — 384x256 4:2:0 photographic fixture (re-muxed from the AVIF in
@@ -153,10 +206,7 @@ public class Av1FrameDecodeTests
     /// pieces land.
     /// </summary>
     [Fact(Skip = "Loop-restoration parser is implemented but the Wiener/SGR filter apply step is not. Decoder advances to a complete frame but Y mean_abs ~53 vs libaom because the filters aren't applied.")]
-    public void IrvineCa_Frame0_MatchesLibaomReference()
-    {
-        AssertLibaomYuv420Match(TestImages.Heif.IrvineCaIvf, "Heif/Av1/Irvine_CA.frame0.yuv");
-    }
+    public void IrvineCa_Frame0_MatchesLibaomReference() => this.AssertLibaomYuv420Match(TestImages.Heif.IrvineCaIvf, "Heif/Av1/Irvine_CA.frame0.yuv");
 
     /// <summary>
     /// Smoke test: every fixture in the AV1 input set should at least drive the decoder
@@ -169,6 +219,11 @@ public class Av1FrameDecodeTests
     [InlineData(TestImages.Heif.Orange4x4Ivf)]
     [InlineData(TestImages.Heif.IbcClean256Ivf)]
     [InlineData(TestImages.Heif.MonoIbc256Ivf)]
+    [InlineData(TestImages.Heif.CdefOnly128Ivf)]
+    [InlineData(TestImages.Heif.NoPost128Ivf)]
+    [InlineData(TestImages.Heif.CdefEdge96x80Ivf)]
+    [InlineData(TestImages.Heif.Cdef422_128Ivf)]
+    [InlineData(TestImages.Heif.CdefMulti256Ivf)]
     [InlineData(TestImages.Heif.ScreenText512Q30Ivf)]
     [InlineData(TestImages.Heif.ScreenText512Q60Ivf)]
     [InlineData(TestImages.Heif.ScreenTextNopltQ30Ivf)]

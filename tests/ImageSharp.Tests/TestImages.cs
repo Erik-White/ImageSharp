@@ -1273,9 +1273,36 @@ public static class TestImages
         public const string Orange4x4Ivf = "Heif/Orange4x4.ivf";
         public const string IrvineCaIvf = "Heif/Irvine_CA.ivf";
 
-        // 4:4:4 screen-content fixtures (re-muxed from the AVIF originals). aomdec
-        // refuses --i420 on these so the YUV golden compare path doesn't apply yet;
-        // the decode-without-throwing smoke tests still cover them.
+        // 128x128 8-bit 4:2:0 IVF authored via ffmpeg + libaom-av1 with
+        // -enable-cdef 1 -enable-restoration 0. The synthetic input is a low-amplitude
+        // sin/cos texture which encodes with non-zero CDEF strengths and no loop-restoration
+        // pass — the only post-loop-filter step that runs is CDEF, so any byte-level diff
+        // against the aomdec reference YUV isolates CDEF behaviour.
+        public const string CdefOnly128Ivf = "Heif/cdef-only-128.ivf";
+
+        // 128x128 8-bit 4:2:0 IVF, same encoder source as cdef-only-128 but authored with
+        // -enable-cdef 0 -enable-restoration 0. With every post-loop-filter step disabled,
+        // only deblock + intra prediction + inverse transform execute.
+        public const string NoPost128Ivf = "Heif/nopost-128.ivf";
+
+        // 96x80 8-bit 4:2:0 IVF, CDEF on, LR off. Frame dimensions are not multiples of 64
+        // so the CDEF unit grid produces clipped units at the right edge (32 wide) and
+        // bottom edge (16 tall) — exercises the Math.Min(64, frame.Width - unitOriginX)
+        // truncation in Av1CdefUnitDriver.ProcessUnit which cdef-only-128.ivf can't reach.
+        public const string CdefEdge96x80Ivf = "Heif/cdef-edge-96x80.ivf";
+
+        // 128x128 8-bit 4:2:2 IVF, CDEF on, LR off. 4:2:2 chroma is half-width / full-height,
+        // so the CDEF chroma direction remap (Av1CdefConstants.ChromaConv422) fires —
+        // a path neither cdef-only-128 (4:2:0) nor any of the 4:4:4 screen fixtures hit.
+        public const string Cdef422_128Ivf = "Heif/cdef-422-128.ivf";
+
+        // 256x256 8-bit 4:2:0 IVF, CDEF on, LR off, encoded at CRF 50 with a textured input.
+        // Encoder typically picks bitCount > 0 here so CdefStrength varies per superblock —
+        // exercises the per-SB strength index decode path that single-strength frames
+        // (bitCount = 0 like cdef-only-128) bypass.
+        public const string CdefMulti256Ivf = "Heif/cdef-multi-256.ivf";
+
+        // 4:4:4 screen-content fixtures (re-muxed from the AVIF originals)
         public const string ScreenTile256Ivf = "Heif/screen-tile-256.ivf";
         public const string ScreenTileNopltIvf = "Heif/screen-tile-noplt.ivf";
         public const string ScreenText512Q30Ivf = "Heif/screen-text-512-q30.ivf";

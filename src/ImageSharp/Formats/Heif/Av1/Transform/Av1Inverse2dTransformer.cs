@@ -60,7 +60,7 @@ internal class Av1Inverse2dTransformer
             {
                 for (c = 0; c < transformWidth; ++c)
                 {
-                    tempIn[c] = Av1Math.RoundShift((long)input[c] * Av1InverseTransformMath.NewInverseSqrt2, Av1InverseTransformMath.NewSqrt2BitCount);
+                    tempIn[c] = Av1Math.RoundShift((long)input[(c * transformHeight) + r] * Av1InverseTransformMath.NewInverseSqrt2, Av1InverseTransformMath.NewSqrt2BitCount);
                 }
 
                 Av1InverseTransformMath.ClampBuffer(tempIn, transformWidth, (byte)(bitDepth + 8));
@@ -70,7 +70,7 @@ internal class Av1Inverse2dTransformer
             {
                 for (c = 0; c < transformWidth; ++c)
                 {
-                    tempIn[c] = input[c];
+                    tempIn[c] = input[(c * transformHeight) + r];
                 }
 
                 Av1InverseTransformMath.ClampBuffer(tempIn, transformWidth, (byte)(bitDepth + 8));
@@ -78,7 +78,6 @@ internal class Av1Inverse2dTransformer
             }
 
             Av1InverseTransformMath.RoundShiftArray(bufPtr, transformWidth, -shift[0]);
-            input = input[transformWidth..];
             bufPtr = bufPtr.Slice(transformWidth);
         }
 
@@ -190,7 +189,7 @@ internal class Av1Inverse2dTransformer
             {
                 for (c = 0; c < transformWidth; ++c)
                 {
-                    tempIn[c] = Av1Math.RoundShift((long)input[c] * Av1InverseTransformMath.NewInverseSqrt2, Av1InverseTransformMath.NewSqrt2BitCount);
+                    tempIn[c] = Av1Math.RoundShift((long)input[(c * transformHeight) + r] * Av1InverseTransformMath.NewInverseSqrt2, Av1InverseTransformMath.NewSqrt2BitCount);
                 }
 
                 Av1InverseTransformMath.ClampBuffer(tempIn, transformWidth, (byte)(bitDepth + 8));
@@ -200,7 +199,7 @@ internal class Av1Inverse2dTransformer
             {
                 for (c = 0; c < transformWidth; ++c)
                 {
-                    tempIn[c] = input[c];
+                    tempIn[c] = input[(c * transformHeight) + r];
                 }
 
                 Av1InverseTransformMath.ClampBuffer(tempIn, transformWidth, (byte)(bitDepth + 8));
@@ -208,7 +207,6 @@ internal class Av1Inverse2dTransformer
             }
 
             Av1InverseTransformMath.RoundShiftArray(bufPtr, transformWidth, -shift[0]);
-            input = input[transformWidth..];
             bufPtr = bufPtr[transformWidth..];
         }
 
@@ -255,9 +253,9 @@ internal class Av1Inverse2dTransformer
     }
 
     /// <summary>
-    /// libaom <c>av1_highbd_iwht4x4_add</c>: lossless 4x4 inverse Walsh-Hadamard, dispatched
-    /// by EOB. Input is signed transform coefficients; the 1-coeff variant covers the
-    /// DC-only case the encoder emits when all but the DC coefficient are zero.
+    /// Spec 7.13.2.10: lossless 4x4 inverse Walsh-Hadamard, dispatched by EOB. Input is
+    /// signed transform coefficients; the 1-coeff variant covers the DC-only case the
+    /// encoder emits when all but the DC coefficient are zero.
     /// </summary>
     internal static void InverseWalshHadamard4x4Add(Span<int> input, Span<byte> destination, int stride, int endOfBuffer)
     {
@@ -272,10 +270,8 @@ internal class Av1Inverse2dTransformer
     }
 
     /// <summary>
-    /// libaom <c>av1_highbd_iwht4x4_16_add_c</c>: 4-point reversible, orthonormal inverse
-    /// Walsh-Hadamard in 3.5 adds, 0.5 shifts per pixel. Lossless transform used when
-    /// <c>frame_header.coded_lossless</c> is set; pairs with the matching forward WHT in
-    /// the encoder.
+    /// Spec 7.13.2.10: full 16-coefficient lossless 4x4 inverse Walsh-Hadamard. Lossless
+    /// transform that pairs with the matching forward WHT in the encoder.
     /// </summary>
     private static void InverseWalshHadamard4x4Add16(Span<int> input, Span<byte> destination, int stride)
     {
@@ -317,10 +313,9 @@ internal class Av1Inverse2dTransformer
             a1 -= b1;
             d1 += c1;
 
-            // libaom av1_highbd_iwht4x4_16_add_c writes column i of dest per iter, matching
-            // the encoder's pass-1 transpose. The forward+inverse chain round-trips to
-            // identity only when the scan order in Av1ScanOrderConstants and this pass-2
-            // write order are both libaom-aligned.
+            // Below spec resolution: the scan-order tables in Av1ScanOrderConstants and the
+            // pass-1 transpose convention are paired so that the forward+inverse chain
+            // round-trips to identity. See libaom <c>av1_highbd_iwht4x4_16_add_c</c>.
             destination[i] = Av1InverseTransformMath.ClipPixelAdd(destination[i], a1);
             destination[i + stride] = Av1InverseTransformMath.ClipPixelAdd(destination[i + stride], b1);
             destination[i + (2 * stride)] = Av1InverseTransformMath.ClipPixelAdd(destination[i + (2 * stride)], c1);
@@ -329,9 +324,9 @@ internal class Av1Inverse2dTransformer
     }
 
     /// <summary>
-    /// libaom <c>av1_highbd_iwht4x4_1_add_c</c>: DC-only fast path (EOB == 1). Only the
-    /// top-left coefficient is non-zero, so the row pass is a single butterfly and the
-    /// column pass produces a checkerboard-of-two-values pattern.
+    /// Spec 7.13.2.10 with EOB == 1: DC-only fast path. Only the top-left coefficient is
+    /// non-zero, so the row pass is a single butterfly and the column pass produces a
+    /// checkerboard-of-two-values pattern.
     /// </summary>
     private static void InverseWalshHadamard4x4Add1(Span<int> input, Span<byte> destination, int stride)
     {

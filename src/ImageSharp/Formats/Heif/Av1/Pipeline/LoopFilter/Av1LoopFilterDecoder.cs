@@ -43,24 +43,25 @@ internal static class Av1LoopFilterDecoder
             horizontalStates[plane] = CreatePlaneState(in ctx, plane, Av1EdgeDirection.Horizontal);
         }
 
-        // Within each superblock all planes are filtered vertically, then all planes are filtered
-        // horizontally. Wide filters touch pixels in the previous superblock, so this per-SB
-        // ordering — rather than per-plane-then-per-SB — is observable at superblock boundaries.
+        // Spec 7.14.1: the loop filter is applied on all vertical boundaries followed by all
+        // horizontal boundaries. A vertical wide filter at a superblock's left boundary writes
+        // samples back into the previous superblock's columns, so interleaving the two passes per
+        // superblock (vert+horz before advancing) would let a horizontal pass read columns a later
+        // vertical pass has yet to update. We tile the frame-wide passes by superblock-row; within
+        // a row every column is filtered vertically, then every column horizontally.
         for (int sbY = 0; sbY < frameHeightInSuperblocks; sbY++)
         {
-            for (int sbX = 0; sbX < frameWidthInSuperblocks; sbX++)
+            int miRow = sbY << ctx.SuperblockMiSizeLog2;
+            for (int plane = 0; plane < planeCount; plane++)
             {
-                int miRow = sbY << ctx.SuperblockMiSizeLog2;
-                int miCol = sbX << ctx.SuperblockMiSizeLog2;
-
-                for (int plane = 0; plane < planeCount; plane++)
+                for (int sbX = 0; sbX < frameWidthInSuperblocks; sbX++)
                 {
-                    FilterSuperblockPlane(in ctx, verticalStates[plane], miRow, miCol);
+                    FilterSuperblockPlane(in ctx, verticalStates[plane], miRow, sbX << ctx.SuperblockMiSizeLog2);
                 }
 
-                for (int plane = 0; plane < planeCount; plane++)
+                for (int sbX = 0; sbX < frameWidthInSuperblocks; sbX++)
                 {
-                    FilterSuperblockPlane(in ctx, horizontalStates[plane], miRow, miCol);
+                    FilterSuperblockPlane(in ctx, horizontalStates[plane], miRow, sbX << ctx.SuperblockMiSizeLog2);
                 }
             }
         }

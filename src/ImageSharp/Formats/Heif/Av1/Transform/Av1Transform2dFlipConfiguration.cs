@@ -8,6 +8,11 @@ internal class Av1Transform2dFlipConfiguration
     public const int MaxStageNumber = 12;
     private const int SmallestTransformSizeLog2 = 2;
 
+    // Spec 7.13.2.1: every butterfly rotation in the inverse 1D transforms applies
+    // Round2(x, 12) — the 12 is the cosine precision and is constant for every (size, type)
+    // combination on the inverse path.
+    private const int InverseCosBit = 12;
+
     private static readonly Av1TransformType1d[] VerticalType =
         [
             Av1TransformType1d.Dct,
@@ -168,8 +173,21 @@ internal class Av1Transform2dFlipConfiguration
         int txw_idx = transformSize.GetBlockWidthLog2() - SmallestTransformSizeLog2;
         int txh_idx = transformSize.GetBlockHeightLog2() - SmallestTransformSizeLog2;
         this.shift = (isInverse ? InverseShiftMap : ShiftMap)[(int)transformSize];
-        this.CosBitColumn = CosBitColumnMap[txw_idx][txh_idx];
-        this.CosBitRow = CosBitRowMap[txw_idx][txh_idx];
+
+        // Spec 7.13.2.1 fixes the inverse butterfly rotation rounding at Round2(., 12) for
+        // every (size, type) combination, so both 1D passes consume cosine constants at the
+        // 12-bit precision. The forward path retains the size-dependent maps used by SVT-AV1.
+        if (isInverse)
+        {
+            this.CosBitColumn = InverseCosBit;
+            this.CosBitRow = InverseCosBit;
+        }
+        else
+        {
+            this.CosBitColumn = CosBitColumnMap[txw_idx][txh_idx];
+            this.CosBitRow = CosBitRowMap[txw_idx][txh_idx];
+        }
+
         this.TransformFunctionTypeColumn = TransformFunctionTypeMap[txh_idx][(int)this.TransformTypeColumn];
         this.TransformFunctionTypeRow = TransformFunctionTypeMap[txw_idx][(int)this.TransformTypeRow];
         this.StageNumberColumn = this.TransformFunctionTypeColumn != Av1TransformFunctionType.Invalid ? StageNumberList[(int)this.TransformFunctionTypeColumn] : -1;

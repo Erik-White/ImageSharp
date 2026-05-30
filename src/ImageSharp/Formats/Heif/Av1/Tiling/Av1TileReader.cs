@@ -1185,14 +1185,18 @@ internal class Av1TileReader : IAv1TileReader
                 stepColumn = transformSizeUv.Get4x4WideCount();
                 stepRow = transformSizeUv.Get4x4HighCount();
 
-                // SVT typo (mirrored across the chroma loop bound calc): height should be
-                // bounded by idy, not idx. Shows up only on 4:4:4 fixtures where the
-                // mismatch overruns transformInfoUvIndex past the chroma slot allocation.
+                // The chroma transform units live in the subsampled plane, so both the loop
+                // bounds AND the loop start offsets are in chroma 4x4 units. For 4:2:0 blocks
+                // wider/taller than one 64x64 force-split region (e.g. a single 128x128
+                // partition) the unsubsampled start `idx`/`idy` would already meet the
+                // subsampled bound, recording zero chroma TUs for force-split regions 1..3
+                // and desyncing the bitreader. Subsample the start to match the bound. For
+                // 4:4:4 (subX=subY=0) this is a no-op.
                 unitHeight = Av1Math.RoundPowerOf2(Math.Min(height + idy, maxBlockHigh), subY ? 1 : 0);
                 unitWidth = Av1Math.RoundPowerOf2(Math.Min(width + idx, maxBlockWide), subX ? 1 : 0);
-                for (int blockRow = idy; blockRow < unitHeight; blockRow += stepRow)
+                for (int blockRow = idy >> (subY ? 1 : 0); blockRow < unitHeight; blockRow += stepRow)
                 {
-                    for (int blockColumn = idx; blockColumn < unitWidth; blockColumn += stepColumn)
+                    for (int blockColumn = idx >> (subX ? 1 : 0); blockColumn < unitWidth; blockColumn += stepColumn)
                     {
                         chromaTransformInfo[transformInfoUvIndex] = new Av1TransformInfo(
                             transformSizeUv, blockColumn, blockRow);

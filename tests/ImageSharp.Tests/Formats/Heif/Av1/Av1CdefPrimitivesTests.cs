@@ -153,21 +153,18 @@ public class Av1CdefPrimitivesTests
         byte[] dst = new byte[8 * 8];
         Av1CdefPrimitives.FilterBlock(
             dst, 8,
-            input.AsSpan((stride * 2) + 2),
+            input,
+            (stride * 2) + 2,
             stride,
             primaryStrength: 0,
             secondaryStrength: 0,
             direction: 0,
             primaryDamping: 5,
             secondaryDamping: 5,
-            coeffShift: 0,
-            blockWidth: 8,
-            blockHeight: 8,
-            enablePrimary: false,
-            enableSecondary: false);
+            coeffShift: 0);
 
-        // With enablePrimary=false and enableSecondary=false the filter visits each pixel
-        // once and writes back x + (8 + 0 - 0) >> 4 = x + 0 = x.
+        // With both strengths zero the primary and secondary filters are disabled, so the
+        // filter visits each pixel once and writes back x + (8 + 0 - 0) >> 4 = x + 0 = x.
         for (int i = 0; i < 8; i++)
         {
             for (int j = 0; j < 8; j++)
@@ -177,4 +174,130 @@ public class Av1CdefPrimitivesTests
             }
         }
     }
+
+    /// <summary>
+    /// End-to-end <see cref="Av1CdefPrimitives.FilterBlock"/> against a libaom-derived
+    /// reference output. Drives the same 8×8 input pattern through libaom's
+    /// <c>cdef_filter_8_0_c</c> (the both-strengths-on case) at <c>(pri=24, sec=12, dir=4,
+    /// pri_damping=5, sec_damping=4, coeff_shift=0)</c> and bakes the resulting bytes here.
+    /// Catches any regression in the primary/secondary tap geometry, the <c>Constrain</c>
+    /// soft-threshold scaling, the envelope clamp, or the per-pixel rounding step.
+    /// </summary>
+    [Fact]
+    public void FilterBlock_DiagonalGradient_MatchesLibaomReference()
+    {
+        const int stride = Av1CdefConstants.BufferStride;
+        const int hBorder = Av1CdefConstants.HorizontalBorder;
+        const int vBorder = Av1CdefConstants.VerticalBorder;
+        ushort[] input = BuildDiagonalGradientWorkingBuffer();
+
+        byte[] dst = new byte[8 * 8];
+        Av1CdefPrimitives.FilterBlock(
+            dst, 8,
+            input,
+            (vBorder * stride) + hBorder,
+            stride,
+            primaryStrength: 24,
+            secondaryStrength: 12,
+            direction: 4,
+            primaryDamping: 5,
+            secondaryDamping: 4,
+            coeffShift: 0);
+
+        byte[] expected =
+        [
+            95, 118, 109, 132, 123, 146, 137, 160,
+            122, 113, 136, 127, 150, 141, 164, 155,
+            117, 140, 131, 154, 145, 168, 159, 182,
+            144, 135, 158, 149, 172, 163, 186, 177,
+            139, 162, 153, 176, 167, 190, 181, 204,
+            166, 157, 180, 171, 194, 185, 208, 199,
+            161, 184, 175, 198, 189, 212, 203, 227,
+            188, 179, 202, 193, 216, 207, 231, 221,
+        ];
+
+        Assert.Equal(expected, dst);
+    }
+
+    /// <summary>
+    /// Same inputs as <see cref="FilterBlock_DiagonalGradient_MatchesLibaomReference"/>,
+    /// but with <c>enableSecondary=false</c> — exercises the primary-only path
+    /// (<c>cdef_filter_8_1_c</c> in libaom). The envelope clamp is skipped here
+    /// (<c>clipping_required = primary &amp;&amp; secondary</c>).
+    /// </summary>
+    [Fact]
+    public void FilterBlock_PrimaryOnly_MatchesLibaomReference()
+    {
+        const int stride = Av1CdefConstants.BufferStride;
+        const int hBorder = Av1CdefConstants.HorizontalBorder;
+        const int vBorder = Av1CdefConstants.VerticalBorder;
+        ushort[] input = BuildDiagonalGradientWorkingBuffer();
+
+        byte[] dst = new byte[8 * 8];
+        Av1CdefPrimitives.FilterBlock(
+            dst, 8,
+            input,
+            (vBorder * stride) + hBorder,
+            stride,
+            primaryStrength: 24,
+            secondaryStrength: 0,
+            direction: 4,
+            primaryDamping: 5,
+            secondaryDamping: 4,
+            coeffShift: 0);
+
+        byte[] expected =
+        [
+            93, 120, 107, 134, 121, 148, 135, 162,
+            124, 111, 138, 125, 152, 139, 166, 153,
+            115, 142, 129, 156, 143, 170, 157, 184,
+            146, 133, 160, 147, 174, 161, 188, 175,
+            137, 164, 151, 178, 165, 192, 179, 206,
+            168, 155, 182, 169, 196, 183, 210, 197,
+            159, 186, 173, 200, 187, 214, 201, 229,
+            190, 177, 204, 191, 218, 205, 233, 219,
+        ];
+
+        Assert.Equal(expected, dst);
+    }
+
+    /// <summary>
+    /// Builds a <see cref="Av1CdefConstants.BufferStride"/>-strided working buffer with the
+    /// same diagonal-gradient pattern used by the libaom reference harness in
+    /// <c>tools/cdef_ref.c</c>. The pattern keeps every 8×8 pixel in [0, 255], guarantees a
+    /// dominant direction near 4 (so the filter does real work), and fills the 2-row /
+    /// 8-col padding with extrapolated values rather than <see cref="Av1CdefConstants.VeryLarge"/>
+    /// so the envelope clamp visits actual sample magnitudes.
+    /// </summary>
+    private static ushort[] BuildDiagonalGradientWorkingBuffer()
+    {
+        const int stride = Av1CdefConstants.BufferStride;
+        ushort[] input = new ushort[stride * 12];
+        for (int i = 0; i < input.Length; i++)
+        {
+            input[i] = Av1CdefConstants.VeryLarge;
+        }
+
+        for (int r = -2; r < 10; r++)
+        {
+            for (int c = -2; c < 10; c++)
+            {
+                int v = 100 + (r * 11) + (c * 7) + (((r + c) & 1) != 0 ? 13 : -7);
+                if (v < 0)
+                {
+                    v = 0;
+                }
+
+                if (v > 255)
+                {
+                    v = 255;
+                }
+
+                input[((r + 2) * stride) + c + 8] = (ushort)v;
+            }
+        }
+
+        return input;
+    }
+
 }

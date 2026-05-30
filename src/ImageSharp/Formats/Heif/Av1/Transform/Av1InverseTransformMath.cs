@@ -151,17 +151,9 @@ internal static class Av1InverseTransformMath
         shift = 1 << (16 - l);
     }
 
-    public static byte ClipPixelAdd(byte dest, long trans)
-    {
-        trans = CheckRange(trans, 8);
-        return (byte)ClipPixelHighBitDepth(dest + trans, 8);
-    }
+    public static byte ClipPixelAdd(byte dest, long trans) => (byte)ClipPixelHighBitDepth(dest + trans, 8);
 
-    public static short ClipPixelAdd(short dest, long trans, int bitDepth)
-    {
-        trans = CheckRange(trans, bitDepth);
-        return ClipPixelHighBitDepth(dest + trans, bitDepth);
-    }
+    public static short ClipPixelAdd(short dest, long trans, int bitDepth) => ClipPixelHighBitDepth(dest + trans, bitDepth);
 
     private static short ClipPixelHighBitDepth(long val, int bd) => bd switch
     {
@@ -214,18 +206,6 @@ internal static class Av1InverseTransformMath
         long max_value = (1L << (bit - 1)) - 1;
         long min_value = -(1L << (bit - 1));
         return (int)Av1Math.Clamp(value, min_value, max_value);
-    }
-
-    private static long CheckRange(long input, int bd)
-    {
-        // AV1 TX case
-        // - 8 bit: signed 16 bit integer
-        // - 10 bit: signed 18 bit integer
-        // - 12 bit: signed 20 bit integer
-        // - max quantization error = 1828 << (bd - 8)
-        int int_max = (1 << (7 + bd)) - 1 + (914 << (bd - 7));
-        int int_min = -int_max - 1;
-        return Av1Math.Clamp(input, int_min, int_max);
     }
 
     internal static int GetMaxEndOfBuffer(Av1TransformSize transformSize)

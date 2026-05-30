@@ -2,6 +2,7 @@
 // Licensed under the Six Labors Split License.
 
 using SixLabors.ImageSharp.Formats.Heif.Av1.OpenBitstreamUnit;
+using SixLabors.ImageSharp.Formats.Heif.Av1.Pipeline.Cdef;
 using SixLabors.ImageSharp.Formats.Heif.Av1.Pipeline.LoopFilter;
 using SixLabors.ImageSharp.Formats.Heif.Av1.Pipeline.Quantification;
 using SixLabors.ImageSharp.Formats.Heif.Av1.Tiling;
@@ -11,6 +12,7 @@ namespace SixLabors.ImageSharp.Formats.Heif.Av1.Pipeline;
 
 internal class Av1FrameDecoder : IAv1FrameDecoder
 {
+    private readonly Configuration configuration;
     private readonly ObuSequenceHeader sequenceHeader;
     private readonly ObuFrameHeader frameHeader;
     private readonly Av1FrameInfo frameInfo;
@@ -21,6 +23,7 @@ internal class Av1FrameDecoder : IAv1FrameDecoder
 
     public Av1FrameDecoder(Configuration configuration, ObuSequenceHeader sequenceHeader, ObuFrameHeader frameHeader, Av1FrameInfo frameInfo, Av1FrameBuffer<byte> frameBuffer)
     {
+        this.configuration = configuration;
         this.sequenceHeader = sequenceHeader;
         this.frameHeader = frameHeader;
         this.frameInfo = frameInfo;
@@ -51,7 +54,8 @@ internal class Av1FrameDecoder : IAv1FrameDecoder
             // LoopRestorationSaveBoundaryLines(false);
         }
 
-        // DecodeCdef();
+        Av1CdefUnitDriver.DecodeFrame(this.configuration, this.sequenceHeader, this.frameHeader, this.frameInfo, this.frameBuffer);
+
         // SuperResolutionUpscaling(doUpscale);
         if (doLoopRestoration && doUpscale)
         {

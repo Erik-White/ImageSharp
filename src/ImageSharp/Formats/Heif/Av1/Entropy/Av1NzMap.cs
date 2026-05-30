@@ -343,10 +343,8 @@ internal static class Av1NzMap
          21,  21,  21,  21,  21,  21,  21,  21,  21,
     ];
 
-    // libaom av1_nz_map_ctx_offset[TX_SIZES_ALL]. Tables for non-square shapes are stored
-    // in column-major order (idx = col * height + row), so the lookup helper must mirror
-    // that. Several entries deliberately reuse a larger sibling table (e.g. TX_8x4 -> 16x4)
-    // because libaom shares the prefix when the shorter dimension is the same.
+    // Spec 8.3.2 Coeff_Base_Ctx_Offset[txSz][row][col], flattened per tx-size. Tables for
+    // non-square shapes are stored column-major (idx = col * height + row).
     private static readonly int[][] NzMapContextOffset = [
         NzMapContextOffset4x4,   // TX_4x4
         NzMapContextOffset8x8,   // TX_8x8
@@ -436,10 +434,18 @@ internal static class Av1NzMap
         return 0;
     }
 
-    // libaom indexes av1_nz_map_ctx_offset[tx_size][coeff_idx] with coeff_idx = col * height + row
-    // (column-major raster). Match that layout so the verbatim libaom tables work unchanged.
+    // Spec 8.3.2 get_coeff_base_ctx: Coeff_Base_Ctx_Offset is keyed by the original txSz, but
+    // (row, col) derive from the Adjusted (layout) tx-size — row = pos >> bwl, col = pos & mask
+    // with bwl = Tx_Width_Log2[adjTxSz]. The offset table is asymmetric for non-square shapes,
+    // so the (row, col) orientation has to match the scan that produced pos.
     public static int GetNzMapContext(Av1TransformSize transformSize, Point pos)
-        => GetNzMapContext(transformSize, (pos.X * transformSize.GetHeight()) + pos.Y);
+    {
+        Av1TransformSize layoutSize = transformSize.GetAdjusted();
+        int index = layoutSize == transformSize
+            ? (pos.X * layoutSize.GetHeight()) + pos.Y
+            : (pos.Y * layoutSize.GetWidth()) + pos.X;
+        return GetNzMapContext(transformSize, index);
+    }
 
     public static int GetNzMapContext(Av1TransformSize transformSize, int pos) => NzMapContextOffset[(int)transformSize][pos];
 

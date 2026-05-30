@@ -79,12 +79,16 @@ public class Av1InverseTransformTests
     [Fact]
     public void FlipNothingTest()
     {
-        // Arrange
+        // Input is laid out column-major: per spec 7.13.3 the row pass reads Dequant[i][j]
+        // where i indexes rows and j columns, and our buffer is stored c * height + r so
+        // each 4-wide chunk below at row r becomes the r-th column of the logical 4x4 block.
+        // With the no-op Echo transformer pass + pass and no flip, the output is twice the
+        // logical block in row-major.
         int[] input = [
-            1, 2, 3, 4,
-            5, 6, 7, 8,
-            9, 10, 11, 12,
-            13, 14, 15, 16];
+            1, 5, 9, 13,
+            2, 6, 10, 14,
+            3, 7, 11, 15,
+            4, 8, 12, 16];
         short[] expected = [
             2, 4, 6, 8,
             10, 12, 14, 16,
@@ -116,17 +120,17 @@ public class Av1InverseTransformTests
     [Fact]
     public void FlipHorizontalTest()
     {
-        // Arrange
+        // Arrange — input column-major (see FlipNothingTest).
         short[] expected = [
             8, 6, 4, 2,
             16, 14, 12, 10,
             24, 22, 20, 18,
             32, 30, 28, 26];
         int[] input = [
-            1, 2, 3, 4,
-            5, 6, 7, 8,
-            9, 10, 11, 12,
-            13, 14, 15, 16];
+            1, 5, 9, 13,
+            2, 6, 10, 14,
+            3, 7, 11, 15,
+            4, 8, 12, 16];
         int[] temp = new int[16 + 8];
         short[] actual = new short[16];
         Av1Transform2dFlipConfiguration config = new(Av1TransformType.Identity, Av1TransformSize.Size4x4);
@@ -152,17 +156,17 @@ public class Av1InverseTransformTests
     [Fact]
     public void FlipVerticalTest()
     {
-        // Arrange
+        // Arrange — input column-major (see FlipNothingTest).
         short[] expected = [
             26, 28, 30, 32,
             18, 20, 22, 24,
             10, 12, 14, 16,
             2, 4, 6, 8];
         int[] input = [
-            1, 2, 3, 4,
-            5, 6, 7, 8,
-            9, 10, 11, 12,
-            13, 14, 15, 16];
+            1, 5, 9, 13,
+            2, 6, 10, 14,
+            3, 7, 11, 15,
+            4, 8, 12, 16];
         int[] temp = new int[16 + 8];
         short[] actual = new short[16];
         Av1Transform2dFlipConfiguration config = new(Av1TransformType.Identity, Av1TransformSize.Size4x4);
@@ -288,17 +292,17 @@ public class Av1InverseTransformTests
     [Fact]
     public void FlipHorizontalAndVerticalTest()
     {
-        // Arrange
+        // Arrange — input column-major (see FlipNothingTest).
         short[] expected = [
             32, 30, 28, 26,
             24, 22, 20, 18,
             16, 14, 12, 10,
             8, 6, 4, 2];
         int[] input = [
-            1, 2, 3, 4,
-            5, 6, 7, 8,
-            9, 10, 11, 12,
-            13, 14, 15, 16];
+            1, 5, 9, 13,
+            2, 6, 10, 14,
+            3, 7, 11, 15,
+            4, 8, 12, 16];
         int[] temp = new int[16 + 8];
         short[] actual = new short[16];
         Av1Transform2dFlipConfiguration config = new(Av1TransformType.Identity, Av1TransformSize.Size4x4);
@@ -589,5 +593,150 @@ public class Av1InverseTransformTests
         }
 
         return maximumErrorInTest;
+    }
+
+    /// <summary>
+    /// 64x64 inverse 2D DCT (DCT_DCT) with only the DC coefficient set
+    /// </summary>
+    [Fact]
+    public void Inverse64x64Dct_DcOnly_MatchesLibaom()
+    {
+        Span<int> coeffs64x64 = new int[64 * 64];
+        coeffs64x64[0] = 16384;
+
+        byte[] dst = new byte[64 * 64];
+        Av1TransformFunctionParameters parameters = new()
+        {
+            TransformType = Av1TransformType.DctDct,
+            TransformSize = Av1TransformSize.Size64x64,
+            EndOfBuffer = 1,
+            IsLossless = false,
+            BitDepth = 8,
+            Is16BitPipeline = false,
+        };
+
+        Av1InverseTransformerFactory.InverseTransformAdd(coeffs64x64, dst, 64, dst, 64, parameters);
+
+        for (int i = 0; i < 64 * 64; i++)
+        {
+            Assert.Equal((byte)128, dst[i]);
+        }
+    }
+
+    [Fact]
+    public void Inverse1dDct64_DcPlusOneAc_MatchesLibaom()
+    {
+        Span<int> input = stackalloc int[64];
+        input[0] = 16384;
+        input[1] = 8192;
+
+        Span<int> output = stackalloc int[64];
+        Span<byte> stageRange = stackalloc byte[12];
+        for (int i = 0; i < 12; i++)
+        {
+            stageRange[i] = 24;
+        }
+
+        new Av1Dct64Inverse1dTransformer().Transform(input, output, 12, stageRange);
+
+        int[] expected =
+        [
+            19774, 19754, 19714, 19655, 19576, 19479, 19362, 19227, 19071, 18900,
+            18709, 18503, 18280, 18042, 17785, 17517, 17232, 16936, 16622, 16301,
+        ];
+
+        for (int i = 0; i < expected.Length; i++)
+        {
+            Assert.Equal(expected[i], output[i]);
+        }
+    }
+
+    /// <summary>
+    /// DC + a single first-AC coefficient at column-major position 1 (row=1, col=0)
+    /// </summary>
+    [Fact]
+    public void Inverse64x64Dct_DcPlusOneAc_MatchesLibaom()
+    {
+        Span<int> coeffs64x64 = new int[64 * 64];
+        coeffs64x64[0] = 16384;
+        coeffs64x64[1] = 8192;
+
+        byte[] dst = new byte[64 * 64];
+        Av1TransformFunctionParameters parameters = new()
+        {
+            TransformType = Av1TransformType.DctDct,
+            TransformSize = Av1TransformSize.Size64x64,
+            EndOfBuffer = 2,
+            IsLossless = false,
+            BitDepth = 8,
+            Is16BitPipeline = false,
+        };
+
+        Av1InverseTransformerFactory.InverseTransformAdd(coeffs64x64, dst, 64, dst, 64, parameters);
+
+        // libaom-captured reference: all 64 first-row pixels = 219.
+        for (int c = 0; c < 64; c++)
+        {
+            Assert.Equal(219, dst[c]);
+        }
+    }
+
+    /// <summary>
+    /// 64x64 inverse 2D DCT (DCT_DCT) against libaom's output.
+    /// Encoder stores only the top-left 32x32 coefficients; the dequantizer remaps them
+    /// to a 64-tall column-major grid before this point.
+    /// </summary>
+    [Fact]
+    public void Inverse64x64Dct_KnownCoefficients_MatchesLibaom()
+    {
+        // Coefficients in 32x32 column-major layout (idx = c * 32 + r). DC + a sprinkle of AC.
+        Span<int> coeffs32x32 = stackalloc int[32 * 32];
+        coeffs32x32[0] = 16384;
+        coeffs32x32[1] = 8192;
+        coeffs32x32[32] = 4096;
+        coeffs32x32[33] = -2048;
+        coeffs32x32[2] = 1024;
+        coeffs32x32[64] = -1024;
+        coeffs32x32[(5 * 32) + 7] = 256;
+        coeffs32x32[31] = -128;
+        coeffs32x32[(31 * 32) + 31] = 64;
+
+        // Remap 32x32 column-major into 64x64 column-major (first 32 cols, first 32 rows).
+        // Match what Av1InverseQuantizer.InverseQuantize emits: destPos = (pos/32)*64 + (pos%32).
+        Span<int> coeffs64x64 = new int[64 * 64];
+        for (int c = 0; c < 32; c++)
+        {
+            for (int r = 0; r < 32; r++)
+            {
+                coeffs64x64[(c * 64) + r] = coeffs32x32[(c * 32) + r];
+            }
+        }
+
+        byte[] dst = new byte[64 * 64];
+        Av1TransformFunctionParameters parameters = new()
+        {
+            TransformType = Av1TransformType.DctDct,
+            TransformSize = Av1TransformSize.Size64x64,
+            EndOfBuffer = 1024,
+            IsLossless = false,
+            BitDepth = 8,
+            Is16BitPipeline = false,
+        };
+
+        Av1InverseTransformerFactory.InverseTransformAdd(coeffs64x64, dst, 64, dst, 64, parameters);
+
+        // libaom-captured expected output for the same coefficients (rows 0, 1, 31, 63).
+        int[] expectedRow0 = [235, 234, 234, 234, 234, 232, 232, 232, 232, 231, 230, 232, 233, 233, 233, 235];
+        int[] expectedRow1 = [235, 236, 236, 235, 234, 235, 234, 233, 233, 233, 234, 233, 233, 235, 236, 237];
+        int[] expectedRow31 = [152, 153, 153, 152, 152, 153, 154, 153, 153, 154, 154, 153, 152, 153, 153, 152];
+        int[] expectedRow63 = [111, 112, 113, 112, 113, 114, 115, 114, 114, 115, 115, 114, 112, 112, 111, 108];
+
+        for (int c = 0; c < 16; c++)
+        {
+            Assert.Equal(expectedRow0[c], dst[c]);
+            Assert.Equal(expectedRow1[c], dst[(1 * 64) + c]);
+            Assert.Equal(expectedRow31[c], dst[(31 * 64) + c]);
+            Assert.Equal(expectedRow63[c], dst[(63 * 64) + c]);
+        }
     }
 }

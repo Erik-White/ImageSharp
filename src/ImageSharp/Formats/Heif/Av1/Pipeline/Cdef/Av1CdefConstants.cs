@@ -10,13 +10,6 @@ namespace SixLabors.ImageSharp.Formats.Heif.Av1.Pipeline.Cdef;
 internal static class Av1CdefConstants
 {
     /// <summary>
-    /// Number of primary strength values per <c>cdef_y_strength</c> / <c>cdef_uv_strength</c>
-    /// entry (spec 6.10.14: each strength fits in 6 bits split as 4-bit primary × 2-bit
-    /// secondary, giving 16 primary buckets).
-    /// </summary>
-    public const int PrimaryStrengthCount = 16;
-
-    /// <summary>
     /// Number of secondary strength buckets carried in the low 2 bits of each
     /// <c>cdef_*_strength</c> value (spec 6.10.14). The decoder remaps bucket 3 to 4 in
     /// 7.15.1 to skip an unused magnitude.
@@ -57,23 +50,22 @@ internal static class Av1CdefConstants
     /// <c>Cdef_Directions</c> from spec 7.15.3 (the 8 direction × 2 taps offsets), with two
     /// extra entries on each end so callers can index by <c>direction ± 2</c> without
     /// modular arithmetic. Padding rows mirror the wrap-around values that direction
-    /// arithmetic would produce mod 8 (libaom-organisational; not in spec). Tuples are
-    /// <c>(dy, dx)</c> so the caller multiplies <c>dy</c> by whichever input stride applies.
+    /// arithmetic would produce mod 8 (libaom-organisational; not in spec).
     /// </summary>
-    public static readonly (int Dy, int Dx)[][] Directions =
+    public static readonly Av1CdefDirectionOffset[][] Directions =
     [
-        [(1, 0), (2, 0)],
-        [(1, 0), (2, -1)],
-        [(-1, 1), (-2, 2)],
-        [(0, 1), (-1, 2)],
-        [(0, 1), (0, 2)],
-        [(0, 1), (1, 2)],
-        [(1, 1), (2, 2)],
-        [(1, 0), (2, 1)],
-        [(1, 0), (2, 0)],
-        [(1, 0), (2, -1)],
-        [(-1, 1), (-2, 2)],
-        [(0, 1), (-1, 2)],
+        [new(1, 0), new(2, 0)],
+        [new(1, 0), new(2, -1)],
+        [new(-1, 1), new(-2, 2)],
+        [new(0, 1), new(-1, 2)],
+        [new(0, 1), new(0, 2)],
+        [new(0, 1), new(1, 2)],
+        [new(1, 1), new(2, 2)],
+        [new(1, 0), new(2, 1)],
+        [new(1, 0), new(2, 0)],
+        [new(1, 0), new(2, -1)],
+        [new(-1, 1), new(-2, 2)],
+        [new(0, 1), new(-1, 2)],
     ];
 
     /// <summary>
@@ -91,4 +83,18 @@ internal static class Av1CdefConstants
     /// Secondary filter taps <c>{2, 1}</c> from spec 7.15.2.
     /// </summary>
     public static readonly int[] SecondaryTaps = [2, 1];
+
+    /// <summary>
+    /// Chroma direction remap for 4:2:2 (horizontally subsampled) — luma direction is mapped
+    /// onto the closest direction valid in the half-width 8×4 chroma block. Spec 7.15.2.2;
+    /// libaom <c>cdef.c:cdef_fb_col</c>.
+    /// </summary>
+    public static readonly int[] ChromaConv422 = [7, 0, 2, 4, 5, 6, 6, 6];
+
+    /// <summary>
+    /// Chroma direction remap for 4:4:0 (vertically subsampled) — luma direction is mapped
+    /// onto the closest direction valid in the half-height 4×8 chroma block. Spec 7.15.2.2;
+    /// libaom <c>cdef.c:cdef_fb_col</c>.
+    /// </summary>
+    public static readonly int[] ChromaConv440 = [1, 2, 2, 2, 3, 4, 6, 0];
 }

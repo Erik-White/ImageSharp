@@ -1,9 +1,7 @@
 // Copyright (c) Six Labors.
 // Licensed under the Six Labors Split License.
 
-using System;
 using System.Runtime.CompilerServices;
-using System.Security.Cryptography;
 using SixLabors.ImageSharp.Formats.Heif.Av1.Transform;
 
 namespace SixLabors.ImageSharp.Formats.Heif.Av1.Prediction;
@@ -26,10 +24,12 @@ internal class Av1DirectionalZone2Predictor
     }
 
     public static void PredictScalar(Av1TransformSize transformSize, Span<byte> destination, nuint stride, Span<byte> above, Span<byte> left, bool upsampleAbove, bool upsampleLeft, int dx, int dy)
-        => new Av1DirectionalZone2Predictor(transformSize).PredictScalar(destination, stride, above, left, upsampleAbove, upsampleAbove, dx, dy);
+        => new Av1DirectionalZone2Predictor(transformSize).PredictScalar(destination, stride, above, left, upsampleAbove, upsampleLeft, dx, dy);
 
     /// <summary>
-    /// SVT: svt_av1_dr_prediction_z1_c
+    /// For each pixel the predictor first projects toward the above row; if that projection
+    /// lands left of the available samples it re-projects toward the left column instead.
+    /// The per-row projection is recomputed per pixel — there is no row-loop running offset like z1/z3.
     /// </summary>
     public void PredictScalar(Span<byte> destination, nuint stride, Span<byte> above, Span<byte> left, bool doUpsampleAbove, bool doUpsampleLeft, int dx, int dy)
     {
@@ -45,34 +45,34 @@ internal class Av1DirectionalZone2Predictor
         int minBasisX = -(1 << upsampleAbove);
         int fractionBitCountX = 6 - upsampleAbove;
         int fractionBitCountY = 6 - upsampleLeft;
-        int basisIncrementX = 1 << upsampleAbove;
-        int x = -dx;
-        for (nuint r = 0; r < this.blockHeight; ++r)
+
+        for (int r = 0; r < (int)this.blockHeight; r++)
         {
-            int val;
-            int base1 = x >> fractionBitCountX;
-            int y = ((int)r << 6) - dy;
-            for (nuint c = 0; c < this.blockWidth; ++c, base1 += basisIncrementX, y -= dy)
+            for (int c = 0; c < (int)this.blockWidth; c++)
             {
-                if (base1 >= minBasisX)
+                int val;
+                int y = r + 1;
+                int x = (c << 6) - (y * dx);
+                int baseX = x >> fractionBitCountX;
+                if (baseX >= minBasisX)
                 {
-                    int shift1 = ((x * (1 << upsampleAbove)) & 0x3F) >> 1;
-                    val = (Unsafe.Add(ref aboveRef, base1) * (32 - shift1)) + (Unsafe.Add(ref aboveRef, base1 + 1) * shift1);
+                    int shift = ((x * (1 << upsampleAbove)) & 0x3F) >> 1;
+                    val = (Unsafe.Add(ref aboveRef, baseX) * (32 - shift)) + (Unsafe.Add(ref aboveRef, baseX + 1) * shift);
                     val = Av1Math.RoundPowerOf2(val, 5);
                 }
                 else
                 {
-                    int base2 = y >> fractionBitCountY;
-                    Guard.MustBeGreaterThanOrEqualTo(base2, -(1 << upsampleLeft), nameof(base2));
-                    int shift2 = ((y * (1 << upsampleLeft)) & 0x3F) >> 1;
-                    val = (Unsafe.Add(ref leftRef, base2) * (32 - shift2)) + (Unsafe.Add(ref leftRef, base2 + 1) * shift2);
+                    int xn = c + 1;
+                    int yn = (r << 6) - (xn * dy);
+                    int baseY = yn >> fractionBitCountY;
+                    int shift = ((yn * (1 << upsampleLeft)) & 0x3F) >> 1;
+                    val = (Unsafe.Add(ref leftRef, baseY) * (32 - shift)) + (Unsafe.Add(ref leftRef, baseY + 1) * shift);
                     val = Av1Math.RoundPowerOf2(val, 5);
                 }
 
                 Unsafe.Add(ref destinationRef, c) = (byte)Av1Math.Clamp(val, 0, 255);
             }
 
-            x -= dx;
             destinationRef = ref Unsafe.Add(ref destinationRef, stride);
         }
     }
