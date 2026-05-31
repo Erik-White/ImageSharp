@@ -105,35 +105,30 @@ public class Av1ScanOrderTests
     }
 
     /// <summary>
-    /// Pins the default 4x4 scan order to libaom <c>default_scan_4x4</c>. The original
-    /// ImageSharp port had the scan transposed relative to libaom (positions 1↔4, 2↔8,
-    /// 3↔12 swapped through the table), which silently transposed every 2D coefficient
-    /// block. The visible symptom was sub-LSB rounding noise in <c>mono-ibc-256.ivf</c>;
-    /// the underlying defect was every TX_4X4 transform reading inputs in the wrong
-    /// orientation. This test guarantees the scan stays libaom-shaped.
+    /// Pins the default 4x4 scan order to the spec <c>Default_Scan_4x4</c> (spec 9.2)
     /// </summary>
     [Fact]
-    public void DefaultScan4x4_MatchesLibaom()
+    public void DefaultScan4x4_MatchesSpec()
     {
         Av1ScanOrder scanOrder = Av1ScanOrderConstants.GetScanOrder(Av1TransformSize.Size4x4, Av1TransformType.DctDct);
-        short[] expected = [0, 4, 1, 2, 5, 8, 12, 9, 6, 3, 7, 10, 13, 14, 11, 15];
+        short[] expected = [0, 1, 4, 8, 5, 2, 3, 6, 9, 12, 13, 10, 7, 11, 14, 15];
         Assert.Equal(expected, scanOrder.Scan.ToArray());
     }
 
     [Fact]
-    public void DefaultScan8x8_MatchesLibaom()
+    public void DefaultScan8x8_MatchesSpec()
     {
         Av1ScanOrder scanOrder = Av1ScanOrderConstants.GetScanOrder(Av1TransformSize.Size8x8, Av1TransformType.DctDct);
         short[] expected = [
-            0,  8,  1,  2,  9,  16, 24, 17, 10, 3,  4,  11, 18, 25, 32, 40,
-            33, 26, 19, 12, 5,  6,  13, 20, 27, 34, 41, 48, 56, 49, 42, 35,
-            28, 21, 14, 7,  15, 22, 29, 36, 43, 50, 57, 58, 51, 44, 37, 30,
-            23, 31, 38, 45, 52, 59, 60, 53, 46, 39, 47, 54, 61, 62, 55, 63];
+            0, 1, 8, 16, 9, 2, 3, 10, 17, 24, 32, 25, 18, 11, 4, 5,
+            12, 19, 26, 33, 40, 48, 41, 34, 27, 20, 13, 6, 7, 14, 21, 28,
+            35, 42, 49, 56, 57, 50, 43, 36, 29, 22, 15, 23, 30, 37, 44, 51,
+            58, 59, 52, 45, 38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63];
         Assert.Equal(expected, scanOrder.Scan.ToArray());
     }
 
     [Fact]
-    public void DefaultScan4x8_MatchesLibaomTransposed()
+    public void DefaultScan4x8_MatchesSpec()
     {
         Av1ScanOrder scanOrder = Av1ScanOrderConstants.GetScanOrder(Av1TransformSize.Size4x8, Av1TransformType.DctDct);
         short[] expected = [
@@ -143,7 +138,7 @@ public class Av1ScanOrderTests
     }
 
     [Fact]
-    public void DefaultScan8x4_MatchesLibaomTransposed()
+    public void DefaultScan8x4_MatchesSpec()
     {
         Av1ScanOrder scanOrder = Av1ScanOrderConstants.GetScanOrder(Av1TransformSize.Size8x4, Av1TransformType.DctDct);
         short[] expected = [

@@ -186,8 +186,7 @@ public class Av1FrameDecodeTests
     /// `nopost-128.ivf` — synthetic 128×128 4:2:0 frame authored with libaom-av1
     /// <c>-enable-cdef 0 -enable-restoration 0</c>. With every post-loop-filter step off,
     /// only deblock + intra prediction + inverse transform run, so a YUV mismatch isolates
-    /// the intra/transform pipeline from CDEF/LR. Currently chroma matches byte-exact and
-    /// Y is ~99% off (mean_abs ~38), tracking #134.
+    /// the intra/transform pipeline from CDEF/LR.
     /// </summary>
     [Fact]
     public void NoPost128_Frame0_MatchesLibaomReference() => this.AssertLibaomYuv420Match(TestImages.Heif.NoPost128Ivf, "Heif/Av1/nopost-128.frame0.yuv");

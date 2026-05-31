@@ -44,6 +44,28 @@ public class Av1SymbolContextTests
         Assert.Equal(actualIndex, index);
     }
 
+    /// <summary>
+    /// Pins the 2D coefficient-base context offset (spec 8.3.2
+    /// <c>Coeff_Base_Ctx_Offset[txSz][Min(row,4)][Min(col,4)]</c>) for the non-square shapes
+    /// whose offset table is asymmetric.
+    /// </summary>
+    [Theory]
+    // width < height: row < 2 maps to 11.
+    [InlineData((int)Av1TransformSize.Size32x64, 1, 0, 11)]
+    [InlineData((int)Av1TransformSize.Size32x64, 0, 1, 11)]
+    [InlineData((int)Av1TransformSize.Size16x64, 1, 0, 11)]
+    [InlineData((int)Av1TransformSize.Size8x16, 2, 0, 11)]
+    // width > height: col < 2 maps to 16.
+    [InlineData((int)Av1TransformSize.Size64x32, 1, 0, 16)]
+    [InlineData((int)Av1TransformSize.Size64x32, 0, 1, 16)]
+    [InlineData((int)Av1TransformSize.Size64x16, 1, 0, 16)]
+    [InlineData((int)Av1TransformSize.Size16x8, 0, 1, 16)]
+    // col == 2 on a width > height shape falls outside the col < 2 band: 6.
+    [InlineData((int)Av1TransformSize.Size64x32, 2, 0, 6)]
+    [InlineData((int)Av1TransformSize.Size16x8, 2, 0, 6)]
+    public void GetNzMapContext_NonSquare_MatchesSpec(int transformSize, int x, int y, int expected)
+        => Assert.Equal(expected, Av1NzMap.GetNzMapContext((Av1TransformSize)transformSize, new Point(x, y)));
+
     public static TheoryData<int, int, int> GetLowLevelContextEndOfBlockData()
     {
         TheoryData<int, int, int> result = [];

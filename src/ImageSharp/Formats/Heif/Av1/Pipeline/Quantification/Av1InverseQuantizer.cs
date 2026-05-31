@@ -65,17 +65,13 @@ internal class Av1InverseQuantizer
         int shift = transformSize.GetScale();
 
         // The 2D inverse transform reads its input column-major at the destination height
-        // stride (input[(col * destinationHeight) + row]; spec 7.13.3 row pass). The dequant
-        // therefore has to place each scanned coefficient at that column-major slot. Two
-        // conventions feed in: the scan grid is the qm-adjusted size (64-dim sizes use the
-        // 32-bounded scan, so the height is expanded from adjustedHeight to destinationHeight),
-        // and our non-square scan tables are stored transposed vs libaom (commit "Transpose
-        // non-square scan tables..."), so the (row, col) recovery differs for non-square.
+        // stride (input[(col * destinationHeight) + row]; spec 7.13.3 row pass). Scan values
+        // are row-major over the qm-adjusted width (spec 9.2: pos = width * row + col), so the
+        // coefficient's grid position is (col = pos % adjustedWidth, row = pos / adjustedWidth).
+        // 64-dim sizes use the 32-bounded scan, so destinationHeight (the un-adjusted height)
+        // can exceed adjustedHeight; the extra high-frequency rows stay zero.
         int destinationHeight = transformSize.GetHeight();
         int adjustedWidth = qmTransformSize.GetWidth();
-        int adjustedHeight = qmTransformSize.GetHeight();
-        int adjustedHeightLog2 = Av1Math.Log2(adjustedHeight);
-        bool squareScan = adjustedWidth == adjustedHeight;
 
         int coefficientCount = level[0];
         level = level[1..];
@@ -109,21 +105,10 @@ internal class Av1InverseQuantizer
                     qCoefficient = -qCoefficient;
                 }
 
-                // Recover the coefficient's (row, col) in the adjusted grid, then place it
-                // column-major at the destination height stride.
-                int row;
-                int col;
-                if (squareScan)
-                {
-                    col = pos >> adjustedHeightLog2;
-                    row = pos & (adjustedHeight - 1);
-                }
-                else
-                {
-                    col = pos % adjustedWidth;
-                    row = pos / adjustedWidth;
-                }
-
+                // Recover the coefficient's (row, col) from the row-major scan value, then place
+                // it column-major at the destination height stride.
+                int col = pos % adjustedWidth;
+                int row = pos / adjustedWidth;
                 int destPos = (col * destinationHeight) + row;
                 qCoefficients[destPos] = Av1Math.Clamp(qCoefficient, minValue, maxValue);
             }
