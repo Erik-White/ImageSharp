@@ -1149,6 +1149,15 @@ internal class Av1TileReader : IAv1TileReader
         bool isLossLess = this.FrameHeader.LosslessArray[partitionInfo.ModeInfo.SegmentId];
         Av1TransformSize transformSizeUv = isLossLess ? Av1TransformSize.Size4x4 : blockSize.GetMaxUvTransformSize(subX, subY);
 
+        // The per-plane force-split bucket arrays are scratch reused across blocks. Blocks
+        // smaller than 128x128 only populate the buckets their force-split loop visits, so
+        // clear all four first to avoid carrying a previous (larger) block's counts into the
+        // unused buckets.
+        for (int plane = 0; plane < 3; plane++)
+        {
+            Array.Clear(this.transformUnitCount[plane], 0, 4);
+        }
+
         for (int idy = 0; idy < maxBlockHigh; idy += height)
         {
             for (int idx = 0; idx < maxBlockWide; idx += width, forceSplitCount++)
