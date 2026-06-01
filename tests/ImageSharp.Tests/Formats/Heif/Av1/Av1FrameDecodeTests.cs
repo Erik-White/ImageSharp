@@ -201,6 +201,9 @@ public class Av1FrameDecodeTests
     [Fact(Skip = "Loop-restoration parser is implemented but the Wiener/SGR filter apply step is not. Decoder advances to a complete frame but Y mean_abs ~53 vs libaom because the filters aren't applied.")]
     public void IrvineCa_Frame0_MatchesLibaomReference() => this.AssertLibaomYuv420Match(TestImages.Heif.IrvineCaIvf, "Heif/Av1/Irvine_CA.frame0.yuv");
 
+    [Fact(Skip = "Loop-restoration (Wiener) apply not yet implemented (#128); Y diverges by the unapplied filter. Base reconstruction (incl. chroma) is otherwise correct.")]
+    public void LrOnly128_Frame0_MatchesLibaomReference() => this.AssertLibaomYuv420Match(TestImages.Heif.LrOnly128Ivf, "Heif/Av1/lr-only-128.frame0.yuv");
+
     /// <summary>
     /// Smoke test: every fixture in the AV1 input set should at least drive the decoder
     /// to completion without throwing an unimplemented-feature exception. When a fixture

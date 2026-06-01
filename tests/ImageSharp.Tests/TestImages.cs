@@ -1273,6 +1273,13 @@ public static class TestImages
         public const string Orange4x4Ivf = "Heif/Orange4x4.ivf";
         public const string IrvineCaIvf = "Heif/Irvine_CA.ivf";
 
+        // 256x256 8-bit 4:2:0 IVF (a Calliphora photo crop) encoded with
+        // --enable-restoration=1 --enable-cdef=0 --enable-palette=0 --enable-intrabc=0;
+        // the encoder picks a single Y Wiener restoration unit. With CDEF off, the only
+        // post-loop-filter step is loop restoration, so a byte diff against the aomdec
+        // reference isolates the Wiener apply path. (Name is historical; frame is 256x256.)
+        public const string LrOnly128Ivf = "Heif/lr-only-128.ivf";
+
         // 128x128 8-bit 4:2:0 IVF authored via ffmpeg + libaom-av1 with
         // -enable-cdef 1 -enable-restoration 0. The synthetic input is a low-amplitude
         // sin/cos texture which encodes with non-zero CDEF strengths and no loop-restoration
