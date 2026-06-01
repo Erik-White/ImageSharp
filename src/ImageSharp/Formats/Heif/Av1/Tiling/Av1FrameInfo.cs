@@ -93,6 +93,12 @@ internal partial class Av1FrameInfo
     }
 
     /// <summary>
+    /// Gets or sets the parsed loop-restoration unit grid (null when loop restoration is off
+    /// for the frame). Populated by the tile parser and consumed by the apply step.
+    /// </summary>
+    public LoopRestoration.Av1LoopRestorationGrid? LoopRestorationGrid { get; set; }
+
+    /// <summary>
     /// Gets the number of mode info blocks in a single superblock.
     /// </summary>
     public int ModeInfoCount => this.modeInfos.Length;

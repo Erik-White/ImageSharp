@@ -186,9 +186,7 @@ internal class Av1TileReader : IAv1TileReader
         int sbWidth = superBlockSize.GetWidth();
         int sbHeight = superBlockSize.GetHeight();
 
-        // Single discardable unit info; the apply step (when implemented) will need a
-        // per-unit-grid array, but for parse-only we can reuse one slot.
-        LoopRestoration.Av1RestorationUnitInfo scratchUnit = new();
+        LoopRestoration.Av1LoopRestorationGrid grid = this.GetOrCreateLoopRestorationGrid();
 
         for (int plane = 0; plane < planesCount; plane++)
         {
@@ -217,9 +215,6 @@ internal class Av1TileReader : IAv1TileReader
             int rcol1 = Math.Min((planeSbX + planeSbWidth + planeUnitSize - 1) / planeUnitSize, horzUnits);
             int rrow1 = Math.Min((planeSbY + planeSbHeight + planeUnitSize - 1) / planeUnitSize, vertUnits);
 
-            // The first parsed-unit in a frame-row is keyed off planeSbX==0 in libaom; we
-            // approximate with rcol0 == 0. Otherwise we fall back to the previous unit's
-            // filter as the reference, which is what the per-tile reference state tracks.
             for (int rrow = rrow0; rrow < rrow1; rrow++)
             {
                 for (int rcol = rcol0; rcol < rcol1; rcol++)
@@ -227,13 +222,53 @@ internal class Av1TileReader : IAv1TileReader
                     LoopRestoration.Av1LoopRestorationReader.ReadUnit(
                         ref reader,
                         frameType,
-                        scratchUnit,
+                        grid.GetUnit(plane, rrow, rcol),
                         this.tileReferenceWiener[plane],
                         this.tileReferenceSgrProj[plane],
                         isChroma: plane > 0);
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Lazily builds the frame-global loop-restoration unit grid, sized per plane with (spec 7.17.1 unitRows/unitCols).
+    /// </summary>
+    private Av1LoopRestorationGrid GetOrCreateLoopRestorationGrid()
+    {
+        if (this.FrameInfo.LoopRestorationGrid != null)
+        {
+            return this.FrameInfo.LoopRestorationGrid;
+        }
+
+        ObuLoopRestorationParameters lrParameters = this.FrameHeader.LoopRestorationParameters;
+        bool subX = this.SequenceHeader.ColorConfig.SubSamplingX;
+        bool subY = this.SequenceHeader.ColorConfig.SubSamplingY;
+        int[] horizontalUnitCounts = new int[3];
+        int[] verticalUnitCounts = new int[3];
+        for (int plane = 0; plane < 3; plane++)
+        {
+            int planeUnitSize = lrParameters.Items[plane].Size;
+            if (planeUnitSize <= 0)
+            {
+                // Restoration is off for this plane; one placeholder unit keeps the grid rectangular.
+                horizontalUnitCounts[plane] = 1;
+                verticalUnitCounts[plane] = 1;
+                continue;
+            }
+
+            int planeSubX = plane > 0 && subX ? 1 : 0;
+            int planeSubY = plane > 0 && subY ? 1 : 0;
+            int planeWidth = (this.FrameHeader.FrameSize.FrameWidth + ((1 << planeSubX) - 1)) >> planeSubX;
+            int planeHeight = (this.FrameHeader.FrameSize.FrameHeight + ((1 << planeSubY) - 1)) >> planeSubY;
+            horizontalUnitCounts[plane] = Math.Max(1, (planeWidth + (planeUnitSize >> 1)) / planeUnitSize);
+            verticalUnitCounts[plane] = Math.Max(1, (planeHeight + (planeUnitSize >> 1)) / planeUnitSize);
+        }
+
+        Av1LoopRestorationGrid grid = new(horizontalUnitCounts, verticalUnitCounts);
+        this.FrameInfo.LoopRestorationGrid = grid;
+
+        return grid;
     }
 
     /// <summary>
