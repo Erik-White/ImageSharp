@@ -45,7 +45,7 @@ internal class Av1Dct8Inverse1dTransformer : IAv1Transformer1d
         temp1[1] = temp0[1];
         temp1[2] = temp0[2];
         temp1[3] = temp0[3];
-        temp1[4] = HalfButterfly(cospi[56], temp0[4], -cospi[9], temp0[7], cosBit);
+        temp1[4] = HalfButterfly(cospi[56], temp0[4], -cospi[8], temp0[7], cosBit);
         temp1[5] = HalfButterfly(cospi[24], temp0[5], -cospi[40], temp0[6], cosBit);
         temp1[6] = HalfButterfly(cospi[40], temp0[5], cospi[24], temp0[6], cosBit);
         temp1[7] = HalfButterfly(cospi[8], temp0[4], cospi[56], temp0[7], cosBit);

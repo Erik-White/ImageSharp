@@ -198,10 +198,14 @@ public class Av1FrameDecodeTests
     /// yet. Reference YUV is in place so the assertion can light up once the missing
     /// pieces land.
     /// </summary>
-    [Fact(Skip = "Loop-restoration parser is implemented but the Wiener/SGR filter apply step is not. Decoder advances to a complete frame but Y mean_abs ~53 vs libaom because the filters aren't applied.")]
+    [Fact(Skip = "Irvine_CA.ivf is truncated by one byte in its original commit (frameSize=27603 needs 27647, file is 27646); aomdec itself fails to decode it, so no reference can be produced.")]
     public void IrvineCa_Frame0_MatchesLibaomReference() => this.AssertLibaomYuv420Match(TestImages.Heif.IrvineCaIvf, "Heif/Av1/Irvine_CA.frame0.yuv");
 
-    [Fact(Skip = "Wiener LR + intra edge-filter neighbour fix + inverse stage-range fix bring Y to max=1 / mean 0.001 (40px sub-LSB) and chroma byte-exact; a tiny 32x8 inverse-transform rounding diff remains.")]
+    /// <summary>
+    /// `lr-only-128.ivf` — 256x256 4:2:0, CDEF off, loop restoration on (one Y Wiener unit,
+    /// chroma NONE). Validates the Wiener apply path end-to-end.
+    /// </summary>
+    [Fact]
     public void LrOnly128_Frame0_MatchesLibaomReference() => this.AssertLibaomYuv420Match(TestImages.Heif.LrOnly128Ivf, "Heif/Av1/lr-only-128.frame0.yuv");
 
     /// <summary>
