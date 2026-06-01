@@ -207,6 +207,14 @@ public class Av1FrameDecodeTests
     public void Lossless256_Frame0_MatchesLibaomReference() => this.AssertLibaomYuv420Match(TestImages.Heif.Lossless256Ivf, "Heif/Av1/lossless-256.frame0.yuv");
 
     /// <summary>
+    /// `jpeg444_xnconvert.ivf` — 256x256 8-bit 4:4:4 (re-muxed from a converted JPEG). Chroma is
+    /// full resolution on both axes (no subsampling), so a byte-exact match validates the
+    /// 4:4:4 reconstruction + plane layout that the 4:2:0 / 4:2:2 fixtures can't reach.
+    /// </summary>
+    [Fact]
+    public void XnConvert444_Frame0_MatchesLibaomReference() => this.AssertLibaomYuv444Match(TestImages.Heif.XnConvertIvf, "Heif/Av1/jpeg444_xnconvert.frame0.yuv");
+
+    /// <summary>
     /// Smoke test: every fixture in the AV1 input set should at least drive the decoder
     /// to completion without throwing an unimplemented-feature exception. When a fixture
     /// trips a NotImplementedException the test is expected to be marked Skip with the
@@ -242,6 +250,10 @@ public class Av1FrameDecodeTests
     // 4:2:0 golden: chroma is subsampled on both axes.
     private void AssertLibaomYuv420Match(string ivfFixture, string referenceRelativePath)
         => this.AssertLibaomYuvMatch(ivfFixture, referenceRelativePath, chromaShiftX: 1, chromaShiftY: 1);
+
+    // 4:4:4 golden: chroma is full resolution on both axes.
+    private void AssertLibaomYuv444Match(string ivfFixture, string referenceRelativePath)
+        => this.AssertLibaomYuvMatch(ivfFixture, referenceRelativePath, chromaShiftX: 0, chromaShiftY: 0);
 
     private void AssertLibaomYuvMatch(string ivfFixture, string referenceRelativePath, int chromaShiftX, int chromaShiftY)
     {
