@@ -43,6 +43,13 @@ internal static class Av1RestorationConstants
     public const int SgrProjParamsBits = 4;
     public const int SgrProjParamsCount = 1 << SgrProjParamsBits;
 
+    // Self-guided box filter and projection.
+    public const int SgrProjRestorationBits = 4;
+    public const int SgrProjSgrBits = 8;
+    public const int SgrProjSgr = 1 << SgrProjSgrBits;
+    public const int SgrProjMTableBits = 20;
+    public const int SgrProjRecipBits = 12;
+
     public const int SgrProjPrjBits = 7;
 
     public const int SgrProjPrjMin0 = -((1 << SgrProjPrjBits) * 3 / 4);

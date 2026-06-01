@@ -119,9 +119,7 @@ internal static class Av1LoopRestorationDecoder
                 }
                 else if (unit.RestorationType == ObuRestorationType.SgrProj)
                 {
-                    // Spec 7.17.2 self-guided restoration. Not yet implemented; the block keeps
-                    // its post-CDEF samples (which is what RESTORE_NONE would also produce).
-                    throw new NotImplementedException("AV1 self-guided (SGR) loop restoration apply is not implemented yet.");
+                    SelfGuidedBlock(in view, postCdef, x, y, w, h, stripeStartY, stripeEndY, planeEndX, planeEndY, unit.SgrProjInfo);
                 }
             }
         }
@@ -184,6 +182,173 @@ internal static class Av1LoopRestorationDecoder
             }
         }
     }
+
+    /// <summary>
+    /// Spec 7.17.2 self-guided restoration: build the two box-filtered outputs (flt0, flt1) and
+    /// blend them with the source via the signalled projection coefficients.
+    /// </summary>
+    private static void SelfGuidedBlock(
+        in PlaneView view,
+        ReadOnlySpan<byte> postCdef,
+        int x,
+        int y,
+        int w,
+        int h,
+        int stripeStartY,
+        int stripeEndY,
+        int planeEndX,
+        int planeEndY,
+        Av1SgrProjInfo sgr)
+    {
+        const int bitDepth = 8;
+        (int r0, int r1, int s0, int s1) = Av1RestorationConstants.SgrParams[sgr.Ep];
+
+        int[] flt0 = new int[w * h];
+        int[] flt1 = new int[w * h];
+        if (r0 != 0)
+        {
+            BoxFilter(in view, postCdef, x, y, w, h, stripeStartY, stripeEndY, planeEndX, planeEndY, r0, s0, 0, bitDepth, flt0);
+        }
+
+        if (r1 != 0)
+        {
+            BoxFilter(in view, postCdef, x, y, w, h, stripeStartY, stripeEndY, planeEndX, planeEndY, r1, s1, 1, bitDepth, flt1);
+        }
+
+        int w0 = sgr.Xqd[0];
+        int w1 = sgr.Xqd[1];
+        int w2 = (1 << Av1RestorationConstants.SgrProjPrjBits) - w0 - w1;
+        int shift = Av1RestorationConstants.SgrProjRestorationBits + Av1RestorationConstants.SgrProjPrjBits;
+        for (int i = 0; i < h; i++)
+        {
+            Span<byte> destinationRow = view.Destination.DangerousGetRowSpan(view.OriginY + y + i);
+            for (int j = 0; j < w; j++)
+            {
+                int u = postCdef[((y + i) * view.Width) + x + j] << Av1RestorationConstants.SgrProjRestorationBits;
+                long v = (long)w1 * u;
+                v += (long)w0 * (r0 != 0 ? flt0[(i * w) + j] : u);
+                v += (long)w2 * (r1 != 0 ? flt1[(i * w) + j] : u);
+                int value = (int)RoundPowerOf2Long(v, shift);
+                destinationRow[view.OriginX + x + j] = (byte)Av1Math.Clamp(value, 0, byte.MaxValue);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Spec 7.17.3 box filter: computes per-sample blend factors A and B from local box sums of
+    /// radius <paramref name="r"/>, then produces the smoothed output F. For pass 0 only odd rows
+    /// of A/B are populated and the output averages the surrounding odd rows.
+    /// </summary>
+    private static void BoxFilter(
+        in PlaneView view,
+        ReadOnlySpan<byte> postCdef,
+        int x,
+        int y,
+        int w,
+        int h,
+        int stripeStartY,
+        int stripeEndY,
+        int planeEndX,
+        int planeEndY,
+        int r,
+        int s,
+        int pass,
+        int bitDepth,
+        int[] output)
+    {
+        // A and B carry a 1-sample border, so index with (i+1, j+1) over [-1 .. h] x [-1 .. w].
+        int stride = w + 2;
+        int[] a = new int[(h + 2) * stride];
+        int[] b = new int[(h + 2) * stride];
+        int n = ((2 * r) + 1) * ((2 * r) + 1);
+
+        for (int i = -1; i <= h; i++)
+        {
+            // Pass 0 only needs (and the spec only defines) the odd rows of A and B.
+            if (pass == 0 && ((i & 1) == 0))
+            {
+                continue;
+            }
+
+            for (int j = -1; j <= w; j++)
+            {
+                long sumSquares = 0;
+                long sum = 0;
+                for (int dy = -r; dy <= r; dy++)
+                {
+                    for (int dx = -r; dx <= r; dx++)
+                    {
+                        int c = GetSourceSample(in view, postCdef, x + j + dx, y + i + dy, stripeStartY, stripeEndY, planeEndX, planeEndY);
+                        sumSquares += (long)c * c;
+                        sum += c;
+                    }
+                }
+
+                long aa = RoundPowerOf2Long(sumSquares, 2 * (bitDepth - 8));
+                long bb = RoundPowerOf2Long(sum, bitDepth - 8);
+                long p = Math.Max(0, (aa * n) - (bb * bb));
+
+                // p * s can reach ~2^37, so the rounding must happen in 64-bit; z then fits in 12 bits.
+                int z = (int)RoundPowerOf2Long(p * s, Av1RestorationConstants.SgrProjMTableBits);
+                int a2;
+                if (z >= 255)
+                {
+                    a2 = 256;
+                }
+                else if (z == 0)
+                {
+                    a2 = 1;
+                }
+                else
+                {
+                    a2 = ((z << Av1RestorationConstants.SgrProjSgrBits) + (z / 2)) / (z + 1);
+                }
+
+                int oneOverN = ((1 << Av1RestorationConstants.SgrProjRecipBits) + (n / 2)) / n;
+                long b2 = (Av1RestorationConstants.SgrProjSgr - a2) * bb * oneOverN;
+                a[((i + 1) * stride) + j + 1] = a2;
+                b[((i + 1) * stride) + j + 1] = Av1Math.RoundPowerOf2((int)b2, Av1RestorationConstants.SgrProjRecipBits);
+            }
+        }
+
+        // Spec 7.17.3: weighted sum of the 3x3 neighbourhood of A/B, scaled by the source.
+        for (int i = 0; i < h; i++)
+        {
+            int outputShift = (pass == 0 && ((i & 1) != 0)) ? 4 : 5;
+            for (int j = 0; j < w; j++)
+            {
+                int suma = 0;
+                int sumb = 0;
+                for (int dy = -1; dy <= 1; dy++)
+                {
+                    for (int dx = -1; dx <= 1; dx++)
+                    {
+                        int weight;
+                        if (pass == 0)
+                        {
+                            weight = ((i + dy) & 1) != 0 ? (dx == 0 ? 6 : 5) : 0;
+                        }
+                        else
+                        {
+                            weight = (dx == 0 || dy == 0) ? 4 : 3;
+                        }
+
+                        suma += weight * a[((i + dy + 1) * stride) + j + dx + 1];
+                        sumb += weight * b[((i + dy + 1) * stride) + j + dx + 1];
+                    }
+                }
+
+                int u = postCdef[((y + i) * view.Width) + x + j];
+                long value = ((long)suma * u) + sumb;
+                output[(i * w) + j] = (int)RoundPowerOf2Long(
+                    value,
+                    Av1RestorationConstants.SgrProjSgrBits + outputShift - Av1RestorationConstants.SgrProjRestorationBits);
+            }
+        }
+    }
+
+    private static long RoundPowerOf2Long(long value, int n)
+        => n <= 0 ? value : (value + (1L << (n - 1))) >> n;
 
     /// <summary>
     /// Spec 7.17.6 get_source_sample: clamp to the plane extent, then fetch in-stripe samples
