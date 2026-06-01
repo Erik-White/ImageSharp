@@ -76,6 +76,20 @@ internal class Av1BlockDecoder
         };
         partitionInfo.ComputeBoundaryOffsets(this.configuration, this.sequenceHeader, this.frameHeader, tileInfo, this.chromaFromLumaContext);
 
+        // The reconstruction-side partition info needs the same above/left neighbour mode info
+        // the parser populated (Av1TileReader.ParseBlock), because intra edge filtering and
+        // upsampling (spec 7.11.2.9 get_filter_type) depend on whether a neighbour uses a SMOOTH
+        // mode. Without these the filter/upsample decision silently ignores neighbour smoothness.
+        if (partitionInfo.AvailableAbove)
+        {
+            partitionInfo.AboveModeInfo = this.frameInfo.GetModeInfoAtMiPosition(new Point(modeInfoPosition.X, modeInfoPosition.Y - 1));
+        }
+
+        if (partitionInfo.AvailableLeft)
+        {
+            partitionInfo.LeftModeInfo = this.frameInfo.GetModeInfoAtMiPosition(new Point(modeInfoPosition.X - 1, modeInfoPosition.Y));
+        }
+
         int maxBlocksWide = partitionInfo.GetMaxBlockWide(blockSize, false);
         int maxBlocksHigh = partitionInfo.GetMaxBlockHigh(blockSize, false);
 

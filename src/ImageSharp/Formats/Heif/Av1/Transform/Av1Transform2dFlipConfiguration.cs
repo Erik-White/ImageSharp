@@ -238,12 +238,12 @@ internal class Av1Transform2dFlipConfiguration
     {
         if (this.isInverse)
         {
-            // libaom av1_gen_inv_stage_range: opt_range is fixed per dimension and
-            // does NOT depend on the forward range_mult2 table.
-            int sizeCol = this.TransformSize.GetWidth();
-            int sizeRow = this.TransformSize.GetHeight();
-            byte optRangeRow = (byte)(sizeCol == 64 ? 32 : sizeCol == 32 ? 20 : 16);
-            byte optRangeCol = (byte)(sizeRow == 64 ? 32 : sizeRow == 32 ? 20 : 16);
+            // libaom av1_gen_inv_stage_range: opt_range depends only on bit depth, NOT on the
+            // transform size. For 8-bit both row and column ranges are a flat 16; 10/12-bit widen
+            // them. Using a size-based range (e.g. 20 for 32-wide) clips intermediates at a wider
+            // bound than libaom and produces off-by-one reconstruction on some rectangular blocks.
+            byte optRangeRow = (byte)(bitDepth == 8 ? 16 : bitDepth == 10 ? 18 : 20);
+            byte optRangeCol = (byte)(bitDepth <= 10 ? 16 : 18);
             for (int i = 0; i < this.StageNumberColumn && i < MaxStageNumber; ++i)
             {
                 this.StageRangeColumn[i] = optRangeCol;
