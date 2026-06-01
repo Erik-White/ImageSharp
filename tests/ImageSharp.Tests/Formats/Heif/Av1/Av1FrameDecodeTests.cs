@@ -192,16 +192,6 @@ public class Av1FrameDecodeTests
     public void NoPost128_Frame0_MatchesLibaomReference() => this.AssertLibaomYuv420Match(TestImages.Heif.NoPost128Ivf, "Heif/Av1/nopost-128.frame0.yuv");
 
     /// <summary>
-    /// `Irvine_CA.ivf` — 384x256 4:2:0 photographic fixture (re-muxed from the AVIF in
-    /// AOMediaCodec/av1-avif/testFiles/Microsoft). Currently throws inside
-    /// <c>ReadLoopRestoration</c>; the loop-restoration syntax + filter aren't implemented
-    /// yet. Reference YUV is in place so the assertion can light up once the missing
-    /// pieces land.
-    /// </summary>
-    [Fact(Skip = "Irvine_CA.ivf is truncated by one byte in its original commit (frameSize=27603 needs 27647, file is 27646); aomdec itself fails to decode it, so no reference can be produced.")]
-    public void IrvineCa_Frame0_MatchesLibaomReference() => this.AssertLibaomYuv420Match(TestImages.Heif.IrvineCaIvf, "Heif/Av1/Irvine_CA.frame0.yuv");
-
-    /// <summary>
     /// `lr-only-128.ivf` — 256x256 4:2:0, CDEF off, loop restoration on (one Y Wiener unit,
     /// chroma NONE). Validates the Wiener apply path end-to-end.
     /// </summary>

@@ -1271,7 +1271,6 @@ public static class TestImages
         // the AVIF originals so Av1FrameDecodeTests can use the same LoadIvfFirstFrame
         // helper. Reference YUVs (when present) are at ReferenceOutput/Heif/Av1/<name>.frame0.yuv.
         public const string Orange4x4Ivf = "Heif/Orange4x4.ivf";
-        public const string IrvineCaIvf = "Heif/Irvine_CA.ivf";
 
         // 256x256 8-bit 4:2:0 IVF (a Calliphora photo crop) encoded with
         // --enable-restoration=1 --enable-cdef=0 --enable-palette=0 --enable-intrabc=0;
