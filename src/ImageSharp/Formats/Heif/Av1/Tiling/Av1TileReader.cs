@@ -543,9 +543,11 @@ internal class Av1TileReader : IAv1TileReader
                     Span<Av1TransformInfo> transformInfoSpan = (plane == 0) ? superblockInfo.GetTransformInfoY() : superblockInfo.GetTransformInfoUv();
                     if (isLosslessBlock)
                     {
-                        // TODO: Implement.
-                        int unitHeight = Av1Math.RoundPowerOf2(Math.Min(modeUnitBlocksHigh + row, maxBlocksHigh), 0);
-                        int unitWidth = Av1Math.RoundPowerOf2(Math.Min(modeUnitBlocksWide + column, maxBlocksWide), 0);
+                        // Spec 5.11.34: a coded-lossless block >= 64x64 is processed in 64x64
+                        // chunks, each filled with 4x4 transform units. The unit count for this
+                        // chunk/plane is the chunk's 4x4 area, subsampled for chroma.
+                        int unitHeight = Math.Min(modeUnitBlocksHigh + row, maxBlocksHigh);
+                        int unitWidth = Math.Min(modeUnitBlocksWide + column, maxBlocksWide);
                         DebugGuard.IsTrue(transformInfoSpan[transformInfoIndices[plane]].Size == Av1TransformSize.Size4x4, "Lossless frame shall have transform units of size 4x4.");
                         transformUnitCount = ((unitWidth - column) * (unitHeight - row)) >> (subX + subY);
                     }

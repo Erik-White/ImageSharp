@@ -1272,6 +1272,13 @@ public static class TestImages
         // helper. Reference YUVs (when present) are at ReferenceOutput/Heif/Av1/<name>.frame0.yuv.
         public const string Orange4x4Ivf = "Heif/Orange4x4.ivf";
 
+        // 256x256 8-bit 4:2:0 IVF encoded with aomenc --lossless=1 --sb-size=128
+        // --min-partition-size=128, so the frame is tiled with 128x128 coded-lossless blocks.
+        // Coded-lossless forces every transform unit through the 4x4 inverse Walsh-Hadamard path,
+        // and the 128x128 blocks exercise the multi-chunk (>=64x64) lossless transform-unit count
+        // and ordering in Av1TileReader.Residual.
+        public const string Lossless256Ivf = "Heif/lossless-256.ivf";
+
         // 256x256 8-bit 4:2:0 IVF (a Calliphora photo crop) encoded with
         // --enable-restoration=1 --enable-cdef=0 --enable-palette=0 --enable-intrabc=0;
         // the encoder picks a single Y Wiener restoration unit. With CDEF off, the only

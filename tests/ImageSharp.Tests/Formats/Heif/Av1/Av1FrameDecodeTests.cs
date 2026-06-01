@@ -199,6 +199,14 @@ public class Av1FrameDecodeTests
     public void LrOnly128_Frame0_MatchesLibaomReference() => this.AssertLibaomYuv420Match(TestImages.Heif.LrOnly128Ivf, "Heif/Av1/lr-only-128.frame0.yuv");
 
     /// <summary>
+    /// `lossless-256.ivf` — 256x256 4:2:0 coded-lossless frame. Every transform unit is a 4x4
+    /// inverse Walsh-Hadamard; large (≥64x64) partitions exercise the chunked lossless
+    /// transform-unit count + ordering in <c>Av1TileReader.Residual</c>.
+    /// </summary>
+    [Fact]
+    public void Lossless256_Frame0_MatchesLibaomReference() => this.AssertLibaomYuv420Match(TestImages.Heif.Lossless256Ivf, "Heif/Av1/lossless-256.frame0.yuv");
+
+    /// <summary>
     /// Smoke test: every fixture in the AV1 input set should at least drive the decoder
     /// to completion without throwing an unimplemented-feature exception. When a fixture
     /// trips a NotImplementedException the test is expected to be marked Skip with the
